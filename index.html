@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M.A. Fitness | Panel de Administración</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- ── Admin Login Screen ────────────────────────────────── -->
+    <div class="admin-login-overlay" id="admin-login-overlay">
+        <div class="admin-login-card">
+            <div class="admin-login-logo">
+                <img src="img/logo.png" alt="M.A. Fitness Logo" style="width:80px;height:80px;border-radius:50%;margin:0 auto 16px;display:block;">
+                <h2>M.A. <span>FITNESS</span></h2>
+                <p class="admin-login-tag">Panel de Administración</p>
+            </div>
+            <div class="admin-login-form">
+                <div class="admin-login-input-group" style="margin-bottom: 12px;">
+                    <i class="fas fa-envelope"></i>
+                    <input type="email" id="admin-email" placeholder="Correo electrónico" autocomplete="email">
+                </div>
+                <div class="admin-login-input-group">
+                    <i class="fas fa-lock"></i>
+                    <input type="password" id="admin-password" placeholder="Contraseña de acceso" autocomplete="current-password">
+                </div>
+                <button class="btn-primary admin-login-btn" id="btn-admin-login">
+                    <i class="fas fa-sign-in-alt"></i> Ingresar
+                </button>
+                <p class="admin-login-error" id="admin-login-error"></p>
+            </div>
+            <a href="index.html" class="admin-login-back"><i class="fas fa-arrow-left"></i> Volver al sitio</a>
+        </div>
+    </div>
+
+    <!-- ── Full-Screen Routine Editor (must be first child for z-index) ── -->
+    <div class="routine-fullscreen-overlay" id="routine-overlay">
+        <div class="routine-fullscreen-header">
+            <div class="routine-fs-title">
+                <h2><i class="fas fa-dumbbell"></i> Rutina — <span id="routine-member-name"></span></h2>
+            </div>
+            <div class="routine-fs-actions">
+                <button class="btn-primary" id="btn-save-routine"><i class="fas fa-save"></i> Guardar</button>
+                <button class="btn-secondary" id="btn-close-routine"><i class="fas fa-times"></i> Cerrar</button>
+            </div>
+        </div>
+        <div class="routine-fullscreen-body">
+            <input type="hidden" id="routine-member-id">
+            <div class="routine-table-scroll">
+                <table class="routine-edit-table" id="routine-edit-table">
+                    <thead id="routine-edit-thead"></thead>
+                    <tbody id="routine-edit-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container" id="admin-app" style="display:none;">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <img src="img/logo.png" alt="M.A. Fitness Logo" style="width:50px;height:50px;border-radius:50%;margin-bottom:10px;">
+                <h2>M.A. <span>FITNESS</span></h2>
+                <p class="sidebar-tag">Admin Panel</p>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-target="dashboard">
+                    <i class="fas fa-home"></i> Dashboard
+                </button>
+                <button class="nav-btn" data-target="members">
+                    <i class="fas fa-users"></i> Socios
+                </button>
+                <button class="nav-btn" data-target="routines">
+                    <i class="fas fa-dumbbell"></i> Rutinas
+                </button>
+                <button class="nav-btn" data-target="reviews-admin">
+                    <i class="fas fa-star"></i> Reseñas
+                </button>
+                <button class="nav-btn" data-target="plans-config">
+                    <i class="fas fa-tags"></i> Planes
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="index.html" class="nav-btn" title="Ir a la web pública">
+                    <i class="fas fa-globe"></i> Ver Web Pública
+                </a>
+                <button class="nav-btn" id="btn-admin-logout" title="Cerrar sesión admin">
+                    <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <button id="sidebar-toggle" class="sidebar-toggle" title="Menú"><i class="fas fa-bars"></i></button>
+                    <div class="header-text">
+                        <h1 id="page-title">Dashboard</h1>
+                        <p id="page-subtitle">Resumen general del gimnasio.</p>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <button class="btn-outline" id="btn-reset-db" title="Borrar todos los datos">
+                        <i class="fas fa-trash-alt"></i> Reset DB
+                    </button>
+                </div>
+            </header>
+
+            <div class="content-body">
+
+                <!-- ── Dashboard ──────────────────────── -->
+                <section id="dashboard" class="view-section active">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-users"></i></div>
+                            <div class="stat-info">
+                                <h3>Total Socios</h3>
+                                <p class="stat-value" id="stat-total">—</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon success"><i class="fas fa-check-circle"></i></div>
+                            <div class="stat-info">
+                                <h3>Pagados</h3>
+                                <p class="stat-value" id="stat-active">—</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background:var(--danger-bg);color:var(--danger)"><i
+                                     class="fas fa-times-circle"></i></div>
+                            <div class="stat-info">
+                                <h3>No Pagados</h3>
+                                <p class="stat-value" id="stat-overdue">—</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-widgets">
+                        <div class="widget expirations-widget">
+                            <div class="widget-header">
+                                <h3><i class="fas fa-bell"></i> Últimos Registros</h3>
+                            </div>
+                            <div class="widget-body">
+                                <ul class="expiration-list" id="dash-recent"></ul>
+                                <p class="text-muted empty-msg" id="dash-empty"
+                                    style="display:none;text-align:center;padding:20px;">No hay socios registrados aún.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="widget activity-widget">
+                            <div class="widget-header">
+                                <h3><i class="fas fa-fire"></i> Planes</h3>
+                            </div>
+                            <div class="widget-body" id="dash-plans"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ── Members ────────────────────────── -->
+                <section id="members" class="view-section">
+                    <div class="section-actions">
+                        <div class="search-bar">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Buscar por nombre o DNI..." id="search-member">
+                        </div>
+                        <div class="filter-group">
+                            <button class="btn-outline" id="btn-export-members" title="Exportar a Excel">
+                                <i class="fas fa-file-excel"></i> Exportar a Excel
+                            </button>
+                            <select id="filter-plan" class="select-filter">
+                                <option value="">Todos los planes</option>
+                                <option value="estandar">Estándar</option>
+                                <option value="personalizado">Personalizado</option>
+                                <option value="online">Online</option>
+                            </select>
+                            <select id="filter-status" class="select-filter">
+                                <option value="">Todos los estados</option>
+                                <option value="paid">Pagado</option>
+                                <option value="unpaid">No pagado</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Socio</th>
+                                    <th>DNI</th>
+                                    <th>Teléfono</th>
+                                    <th>Plan</th>
+                                    <th>Cuota</th>
+                                    <th>Cuota Mes</th>
+                                    <th>Rutina</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="members-tbody"></tbody>
+                        </table>
+                    </div>
+                    <p class="text-muted empty-msg" id="members-empty"
+                        style="display:none;text-align:center;padding:40px;">No hay socios registrados. Los socios se
+                        registran desde la <a href="index.html" style="color:var(--accent-primary)">página pública</a>.
+                    </p>
+                    <div class="pagination" id="pagination"></div>
+                </section>
+
+                <!-- ── Routines Library ────────────────── -->
+                <section id="routines" class="view-section">
+                    <div class="section-actions" style="justify-content: flex-end; margin-bottom: 20px;">
+                        <button class="btn-primary" id="btn-open-create-routine">
+                            <i class="fas fa-plus"></i> Crear Nueva Rutina
+                        </button>
+                    </div>
+                    <div class="routines-grid" id="routines-grid"></div>
+                </section>
+
+                <!-- ── Reviews Admin ───────────────────── -->
+                <section id="reviews-admin" class="view-section">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Autor</th>
+                                    <th>Calificación</th>
+                                    <th>Reseña</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reviews-admin-tbody"></tbody>
+                        </table>
+                    </div>
+                    <p class="text-muted empty-msg" id="reviews-empty" style="display:none;text-align:center;padding:40px;">No hay reseñas publicadas aún.</p>
+                </section>
+
+                <!-- ── Plans Configuration ──────────────── -->
+                <section id="plans-config" class="view-section">
+                    <div class="widget">
+                        <div class="widget-header">
+                            <h3><i class="fas fa-dumbbell"></i> Precios: Plan Estándar</h3>
+                            <button class="btn-primary" id="btn-save-plans"><i class="fas fa-save"></i> Guardar y Actualizar Socios</button>
+                        </div>
+                        <div class="widget-body">
+                            <p class="text-muted" style="margin-bottom: 20px;">
+                                Modificá acá los precios base del Plan Estándar. Al guardar, <strong>todos los socios</strong> que tengan este plan se actualizarán automáticamente con el nuevo precio según su cantidad de días.
+                            </p>
+                            <div class="plans-config-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px;">
+                                <div class="form-group">
+                                    <label>2 Días ($)</label>
+                                    <input type="number" id="plan-fee-2" step="500">
+                                </div>
+                                <div class="form-group">
+                                    <label>3 Días ($)</label>
+                                    <input type="number" id="plan-fee-3" step="500">
+                                </div>
+                                <div class="form-group">
+                                    <label>4 Días ($)</label>
+                                    <input type="number" id="plan-fee-4" step="500">
+                                </div>
+                                <div class="form-group">
+                                    <label>5 Días ($)</label>
+                                    <input type="number" id="plan-fee-5" step="500">
+                                </div>
+                                <div class="form-group">
+                                    <label>Pase Libre ($)</label>
+                                    <input type="number" id="plan-fee-libre" step="500">
+                                </div>
+                            </div>
+                            <p id="plans-config-msg" style="margin-top: 15px; font-weight: 600;"></p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+        
+        <!-- Sidebar Overlay (Mobile) -->
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    </div>
+
+    <!-- ── Edit Member Modal ───────────────────────────────── -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modal-title">Editar Socio</h2>
+                <button class="modal-close" id="modal-close"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-id">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Nombre</label>
+                        <input type="text" id="edit-name">
+                    </div>
+                    <div class="form-group">
+                        <label>DNI</label>
+                        <input type="text" id="edit-dni" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label>Teléfono</label>
+                        <input type="text" id="edit-phone">
+                    </div>
+                    <div class="form-group">
+                        <label>Plan</label>
+                        <select id="edit-plan">
+                            <option value="estandar">Estándar</option>
+                            <option value="personalizado">Personalizado</option>
+                            <option value="online">Online</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="edit-days-group">
+                        <label>Días por semana</label>
+                        <select id="edit-days">
+                            <option value="2">2 días</option>
+                            <option value="3">3 días</option>
+                            <option value="4">4 días</option>
+                            <option value="5">5 días</option>
+                            <option value="libre">Pase Libre</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Cuota ($)</label>
+                        <input type="number" id="edit-fee" step="500">
+                    </div>
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label><i class="fas fa-notes-medical"></i> Patologías o lesiones <span style="font-weight:400; color:var(--text-muted);">(visible solo para el admin)</span></label>
+                        <textarea id="edit-pathology" rows="3" placeholder="Ej: hernia de disco, rodilla operada..."></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="modal-cancel">Cancelar</button>
+                <button class="btn-primary" id="modal-save"><i class="fas fa-save"></i> Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Create Library Routine Modal ─────────────────────── -->
+    <div class="modal-overlay" id="lib-routine-overlay">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>Crear Nueva Rutina Pre-armada</h2>
+                <button class="modal-close" id="lib-routine-close"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-grid">
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>Nombre de la Rutina</label>
+                        <input type="text" id="lib-routine-name" placeholder="Ej: Hipertrofia Tren Superior">
+                    </div>
+                    <div class="form-group">
+                        <label>Nivel</label>
+                        <select id="lib-routine-level">
+                            <option value="Principiante">Principiante</option>
+                            <option value="Intermedio">Intermedio</option>
+                            <option value="Avanzado">Avanzado</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Días / Frecuencia</label>
+                        <input type="text" id="lib-routine-days" placeholder="Ej: Lunes / Miércoles / Viernes">
+                    </div>
+                </div>
+
+                <div style="margin-top: 25px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h3 style="font-size: 1rem; color: var(--text-primary);">Ejercicios</h3>
+                        <button class="btn-outline sm" id="btn-lib-add-exercise">
+                            <i class="fas fa-plus"></i> Agregar Ejercicio
+                        </button>
+                    </div>
+                    <div id="lib-routine-exercises-list" class="lib-exercises-container">
+                        <!-- Exercise rows will be added here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="lib-routine-cancel">Cancelar</button>
+                <button class="btn-primary" id="lib-routine-save"><i class="fas fa-save"></i> Crear Rutina</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="supabase-config.js"></script>
+    <script src="data.js"></script>
+    <script src="admin.js"></script>
+</body>
+
+</html>
