@@ -742,8 +742,11 @@ async function importMembersFromExcel(file) {
 
                 for (const row of mainData) {
                     try {
-                        const dni = String(row['DNI'] || '').trim();
+                        let dni = String(row['DNI'] || '').trim();
                         if (!dni) continue;
+
+                        // Normalize DNI (remove non-digits like dots or spaces)
+                        dni = dni.replace(/\D/g, '');
 
                         // Check if member already exists to avoid duplicates
                         const existing = await getMemberByDni(dni);
