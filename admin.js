@@ -260,8 +260,10 @@ async function applyFiltersAndRender() {
     const statusFilter = document.getElementById('filter-status').value;
 
     filteredMembers = members.filter(m => {
-        const matchSearch = !search || m.name.toLowerCase().includes(search) || m.dni.includes(search);
-        const matchPlan = !planFilter || m.plan === planFilter;
+        const mName = String(m.name || '').toLowerCase();
+        const mDni = String(m.dni || '');
+        const matchSearch = !search || mName.includes(search) || mDni.includes(search);
+        const matchPlan = !planFilter || (m.plan || '').toLowerCase() === planFilter.toLowerCase();
         let matchStatus = true;
         if (statusFilter === 'paid') matchStatus = isPaidThisMonth(m);
         else if (statusFilter === 'unpaid') matchStatus = !isPaidThisMonth(m);
@@ -323,7 +325,7 @@ function renderMembersPage() {
                 <div style="display:flex;gap:4px;">
                     <button class="icon-btn edit" title="Editar datos" onclick="openEditModal(${m.id})"><i class="fas fa-edit"></i></button>
                     <button class="icon-btn routine-btn" title="Editar rutina" onclick="openRoutineEditor(${m.id})"><i class="fas fa-dumbbell"></i></button>
-                    <button class="icon-btn delete" title="Eliminar" onclick="confirmDelete(${m.id}, '${m.name.replace(/'/g, "\\'")}')""><i class="fas fa-trash"></i></button>
+                    <button class="icon-btn delete" title="Eliminar" onclick="confirmDelete(${m.id}, '${String(m.name || 'Sin Nombre').replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i></button>
                 </div>
             </td>
         </tr>`;
