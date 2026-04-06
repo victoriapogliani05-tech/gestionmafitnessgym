@@ -826,7 +826,28 @@ async function importMembersFromExcel(file) {
                                 }
                                 routine.push(rowCells);
                             }
-                            member.routine = routine;
+                        }
+
+                        // Auto-create Auth Account if email exists
+                        if (member.email && member.dni) {
+                            try {
+                                console.log(`[Import] Creating account for ${member.email}...`);
+                                const { data: authData, error: authError } = await window.supabaseApp.auth.signUp({
+                                    email: member.email,
+                                    password: member.dni // Password is DNI by default
+                                });
+
+                                if (!authError && authData.user) {
+                                    member.auth_id = authData.user.id;
+                                    console.log(`[Import] Account created for DNI ${member.dni}`);
+                                } else if (authError && authError.message.includes('already registered')) {
+                                    console.warn(`[Import] Email ${member.email} already exists in Auth.`);
+                                } else if (authError) {
+                                    console.error(`[Import] Auth Error for ${member.email}:`, authError.message);
+                                }
+                            } catch (err) {
+                                console.error(`[Import] Unexpected Auth Error:`, err);
+                            }
                         }
 
                         await addMember(member);
