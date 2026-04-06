@@ -769,12 +769,23 @@ async function importMembersFromExcel(file) {
                             if (matchDays) days = matchDays[1];
                         }
 
+                        // Robust Header Matching for Email
+                        const rawEmailKey = Object.keys(row).find(k => {
+                            const cleanK = k.trim().toLowerCase();
+                            return cleanK === 'email' || cleanK === 'correo' || cleanK === 'mail';
+                        });
+                        let email = '';
+                        if (rawEmailKey) {
+                            email = String(row[rawEmailKey] || '').replace(/\s+/g, '').trim();
+                            if (email === '—') email = '';
+                        }
+
                         // Build member object
                         const member = {
-                            name: row['Nombre'],
+                            name: row['Nombre'] || row['NOMBRE'] || 'Sin Nombre',
                             dni: dni,
                             phone: row['Teléfono'] === '—' ? '' : String(row['Teléfono']),
-                            email: row['Email'] === '—' ? '' : String(row['Email']),
+                            email: email,
                             plan: plan,
                             daysPerWeek: days,
                             fee: parseInt(String(row['Cuota ($)'] || '0').replace(/\D/g, '')),
