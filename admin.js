@@ -826,6 +826,7 @@ async function importMembersFromExcel(file) {
                                 }
                                 routine.push(rowCells);
                             }
+                            member.routine = routine;
                         }
 
                         // Auto-create Auth Account if email exists
@@ -834,7 +835,7 @@ async function importMembersFromExcel(file) {
                                 console.log(`[Import] Creating account for ${member.email}...`);
                                 const { data: authData, error: authError } = await window.supabaseApp.auth.signUp({
                                     email: member.email,
-                                    password: member.dni // Password is DNI by default
+                                    password: member.dni 
                                 });
 
                                 if (!authError && authData.user) {
@@ -845,6 +846,8 @@ async function importMembersFromExcel(file) {
                                 } else if (authError) {
                                     console.error(`[Import] Auth Error for ${member.email}:`, authError.message);
                                 }
+                                // Small delay to avoid rate limiting
+                                await new Promise(resolve => setTimeout(resolve, 500));
                             } catch (err) {
                                 console.error(`[Import] Unexpected Auth Error:`, err);
                             }
@@ -858,7 +861,7 @@ async function importMembersFromExcel(file) {
                     }
                 }
 
-                alert(`Importación completada.\n\nÉxito: ${importedCount}\nErrores/Duplicados: ${errorCount}`);
+                alert(`Importación completada.\n\nFichas creadas: ${importedCount}\nErrores/Existentes: ${errorCount}\n\nNota: Si no ves los mails en Supabase, revisá que la columna en el Excel se llame exactamente "Email".`);
                 await refreshAll();
                 
                 if (btn) {
