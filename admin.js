@@ -619,6 +619,10 @@ function bindEvents() {
     document.getElementById('filter-plan').addEventListener('change', () => applyFiltersAndRender());
     document.getElementById('filter-status').addEventListener('change', () => applyFiltersAndRender());
     document.getElementById('btn-export-members')?.addEventListener('click', () => exportMembersToExcel());
+    document.getElementById('btn-import-members')?.addEventListener('click', () => document.getElementById('import-excel-file').click());
+    document.getElementById('import-excel-file')?.addEventListener('change', e => {
+        if (e.target.files.length > 0) importMembersFromExcel(e.target.files[0]);
+    });
 
     document.getElementById('modal-close').addEventListener('click', closeModal);
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
@@ -658,9 +662,13 @@ function bindEvents() {
     document.getElementById('btn-close-routine').addEventListener('click', closeRoutineEditor);
 
     document.getElementById('btn-reset-db').addEventListener('click', async () => {
-        if (confirm('¿Borrar TODOS los socios? Esta acción no se puede deshacer.')) {
+        const confirmText = prompt('¿Borrar TODOS los socios? Esta acción no se puede deshacer.\n\nPara confirmar, escribe "BORRAR" debajo:');
+        if (confirmText === 'BORRAR') {
             await resetDatabase();
             await refreshAll();
+            alert('Base de datos de socios reiniciada.');
+        } else if (confirmText !== null) {
+            alert('Acción cancelada. La palabra de confirmación no coincide.');
         }
     });
 
@@ -699,6 +707,155 @@ function bindEvents() {
             }
         });
     });
+}
+
+/**
+ * Imports members and their routines from an Excel file exported by this system.
+ */
+async function importMembersFromExcel(file) {
+    console.log('[admin.js] Starting Excel Import...');
+    try {
+        const btn = document.getElementById('btn-import-members');
+        const originalContent = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importando...';
+        }
+
+        if (typeof XLSX === 'undefined') {
+            throw new Error('La librería Excel (SheetJS) no se cargó.');
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                // 1. Get Main List
+                const listSheet = workbook.Sheets["Lista General"];
+                if (!listSheet) throw new Error('No se encontró la pestaña "Lista General" en el archivo.');
+                const mainData = XLSX.utils.sheet_to_json(listSheet);
+                
+                let importedCount = 0;
+                let errorCount = 0;
+
+                for (const row of mainData) {
+                    try {
+                        const dni = String(row['DNI'] || '').trim();
+                        if (!dni) continue;
+
+                        // Check if member already exists to avoid duplicates
+                        const existing = await getMemberByDni(dni);
+                        if (existing) {
+                            console.warn(`[admin.js] Member with DNI ${dni} already exists. Skipping.`);
+                            continue;
+                        }
+
+                        // Map Plan
+                        let plan = 'estandar';
+                        const planStr = String(row['Plan'] || '').toLowerCase();
+                        if (planStr.includes('personalizado')) plan = 'personalizado';
+                        else if (planStr.includes('online')) plan = 'online';
+
+                        // Map Days
+                        let days = '2';
+                        if (planStr.includes('libre')) days = 'libre';
+                        else {
+                            const matchDays = planStr.match(/(\d+)\s*días/);
+                            if (matchDays) days = matchDays[1];
+                        }
+
+                        // Build member object
+                        const member = {
+                            name: row['Nombre'],
+                            dni: dni,
+                            phone: row['Teléfono'] === '—' ? '' : String(row['Teléfono']),
+                            email: row['Email'] === '—' ? '' : String(row['Email']),
+                            plan: plan,
+                            daysPerWeek: days,
+                            fee: parseInt(String(row['Cuota ($)'] || '0').replace(/\D/g, '')),
+                            pathologies: row['Patologías/Lesiones'] === 'Ninguna' ? '' : row['Patologías/Lesiones'],
+                            routine: [] 
+                        };
+
+                        // 2. Try to find individual sheet for routine
+                        let memberSheet = null;
+                        for (const sName of workbook.SheetNames) {
+                            if (sName === "Lista General") continue;
+                            const sheet = workbook.Sheets[sName];
+                            const sheetDni = sheet['B3'] ? String(sheet['B3'].v).trim() : (sheet['B4'] ? String(sheet['B4'].v).trim() : '');
+                            if (sheetDni === dni) {
+                                memberSheet = sheet;
+                                break;
+                            }
+                        }
+
+                        if (memberSheet) {
+                            const routine = [];
+                            for (let r = 0; r < ROUTINE_ROWS; r++) {
+                                const rowCells = [];
+                                for (let d = 0; d < ROUTINE_DAYS; d++) {
+                                    const colLetter = String.fromCharCode(66 + d); // B, C, D, E, F, G (B is Day 1)
+                                    const cellRef = colLetter + (14 + r); // Routine starts at line 14
+                                    const cell = memberSheet[cellRef];
+                                    const val = cell ? String(cell.v) : '';
+                                    
+                                    if (val && val !== '—') {
+                                        const lines = val.split('\n');
+                                        const ejercicio = lines[0] || '';
+                                        let series = '';
+                                        let rep = '';
+                                        let peso = '';
+
+                                        const srMatch = val.match(/\(([^x]+)x([^)]+)\)/);
+                                        if (srMatch) {
+                                            series = srMatch[1];
+                                            rep = srMatch[2];
+                                        }
+                                        const pMatch = val.match(/\[([^\]]+)\]/);
+                                        if (pMatch) peso = pMatch[1];
+
+                                        rowCells.push({ ejercicio, series, rep, peso });
+                                    } else {
+                                        rowCells.push({ ejercicio: '', series: '', rep: '', peso: '' });
+                                    }
+                                }
+                                routine.push(rowCells);
+                            }
+                            member.routine = routine;
+                        }
+
+                        await addMember(member);
+                        importedCount++;
+                    } catch (err) {
+                        console.error('[admin.js] Error importing row:', row, err);
+                        errorCount++;
+                    }
+                }
+
+                alert(`Importación completada.\n\nÉxito: ${importedCount}\nErrores/Duplicados: ${errorCount}`);
+                await refreshAll();
+                
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalContent;
+                }
+                document.getElementById('import-excel-file').value = ''; // Reset input
+            } catch (err) {
+                console.error('[admin.js] Error processing Excel data:', err);
+                alert('Error al procesar el archivo: ' + err.message);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalContent;
+                }
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    } catch (err) {
+        console.error('[admin.js] Error in importMembersFromExcel:', err);
+        alert('Error: ' + err.message);
+    }
 }
 
 /**
@@ -918,3 +1075,4 @@ async function saveLibraryRoutineAction() {
         btn.innerHTML = originalText;
     }
 }
+
