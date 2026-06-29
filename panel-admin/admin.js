@@ -3,7 +3,7 @@
 // ============================================================
 
 const ROWS_PER_PAGE = 15;
-const ROUTINE_ROWS = 10;
+const ROUTINE_ROWS = 20;
 const ROUTINE_DAYS = 6;
 const ROUTINE_FIELDS = ['Ejercicio', 'Series', 'Rep', 'Peso'];
 let currentPage = 1;
@@ -260,8 +260,10 @@ async function applyFiltersAndRender() {
     const statusFilter = document.getElementById('filter-status').value;
 
     filteredMembers = members.filter(m => {
-        const matchSearch = !search || m.name.toLowerCase().includes(search) || m.dni.includes(search);
-        const matchPlan = !planFilter || m.plan === planFilter;
+        const mName = String(m.name || '').toLowerCase();
+        const mDni = String(m.dni || '');
+        const matchSearch = !search || mName.includes(search) || mDni.includes(search);
+        const matchPlan = !planFilter || (m.plan || '').toLowerCase() === planFilter.toLowerCase();
         let matchStatus = true;
         if (statusFilter === 'paid') matchStatus = isPaidThisMonth(m);
         else if (statusFilter === 'unpaid') matchStatus = !isPaidThisMonth(m);
@@ -323,7 +325,7 @@ function renderMembersPage() {
                 <div style="display:flex;gap:4px;">
                     <button class="icon-btn edit" title="Editar datos" onclick="openEditModal(${m.id})"><i class="fas fa-edit"></i></button>
                     <button class="icon-btn routine-btn" title="Editar rutina" onclick="openRoutineEditor(${m.id})"><i class="fas fa-dumbbell"></i></button>
-                    <button class="icon-btn delete" title="Eliminar" onclick="confirmDelete(${m.id}, '${m.name.replace(/'/g, "\\'")}')""><i class="fas fa-trash"></i></button>
+                    <button class="icon-btn delete" title="Eliminar" onclick="confirmDelete(${m.id}, '${String(m.name || 'Sin Nombre').replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i></button>
                 </div>
             </td>
         </tr>`;
@@ -619,6 +621,10 @@ function bindEvents() {
     document.getElementById('filter-plan').addEventListener('change', () => applyFiltersAndRender());
     document.getElementById('filter-status').addEventListener('change', () => applyFiltersAndRender());
     document.getElementById('btn-export-members')?.addEventListener('click', () => exportMembersToExcel());
+    document.getElementById('btn-import-members')?.addEventListener('click', () => document.getElementById('import-excel-file').click());
+    document.getElementById('import-excel-file')?.addEventListener('change', e => {
+        if (e.target.files.length > 0) importMembersFromExcel(e.target.files[0]);
+    });
 
     document.getElementById('modal-close').addEventListener('click', closeModal);
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
@@ -658,9 +664,13 @@ function bindEvents() {
     document.getElementById('btn-close-routine').addEventListener('click', closeRoutineEditor);
 
     document.getElementById('btn-reset-db').addEventListener('click', async () => {
-        if (confirm('¿Borrar TODOS los socios? Esta acción no se puede deshacer.')) {
+        const confirmText = prompt('¿Borrar TODOS los socios? Esta acción no se puede deshacer.\n\nPara confirmar, escribe "BORRAR" debajo:');
+        if (confirmText === 'BORRAR') {
             await resetDatabase();
             await refreshAll();
+            alert('Base de datos de socios reiniciada.');
+        } else if (confirmText !== null) {
+            alert('Acción cancelada. La palabra de confirmación no coincide.');
         }
     });
 
@@ -699,6 +709,196 @@ function bindEvents() {
             }
         });
     });
+}
+
+/**
+ * Imports members and their routines from an Excel file exported by this system.
+ */
+async function importMembersFromExcel(file) {
+    console.log('[admin.js] Starting Excel Import...');
+    try {
+        const btn = document.getElementById('btn-import-members');
+        const originalContent = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importando...';
+        }
+
+        if (typeof XLSX === 'undefined') {
+            throw new Error('La librería Excel (SheetJS) no se cargó.');
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                // 1. Get Main List
+                const listSheet = workbook.Sheets["Lista General"];
+                if (!listSheet) throw new Error('No se encontró la pestaña "Lista General" en el archivo.');
+                const mainData = XLSX.utils.sheet_to_json(listSheet);
+                
+                let importedCount = 0;
+                let errorCount = 0;
+
+                for (const row of mainData) {
+                    try {
+                        let dni = String(row['DNI'] || '').trim();
+                        if (!dni) continue;
+
+                        // Normalize DNI (remove non-digits like dots or spaces)
+                        dni = dni.replace(/\D/g, '');
+
+                        // Check if member already exists - we will UPDATE instead of skipping
+                        const existing = await getMemberByDni(dni);
+                        let memberId = existing ? existing.id : null;
+                        let existingAuthId = existing ? existing.auth_id : null;
+
+                        // Map Plan
+                        let plan = 'estandar';
+                        const planStr = String(row['Plan'] || '').toLowerCase();
+                        if (planStr.includes('personalizado')) plan = 'personalizado';
+                        else if (planStr.includes('online')) plan = 'online';
+
+                        // Map Days
+                        let days = '2';
+                        if (planStr.includes('libre')) days = 'libre';
+                        else {
+                            const matchDays = planStr.match(/(\d+)\s*días/);
+                            if (matchDays) days = matchDays[1];
+                        }
+
+                        // Robust Header Matching for Email
+                        const rawEmailKey = Object.keys(row).find(k => {
+                            const cleanK = k.trim().toLowerCase();
+                            return cleanK === 'email' || cleanK === 'correo' || cleanK === 'mail';
+                        });
+                        let email = '';
+                        if (rawEmailKey) {
+                            email = String(row[rawEmailKey] || '').replace(/\s+/g, '').trim();
+                            if (email === '—') email = '';
+                        }
+
+                        // Build member object
+                        const member = {
+                            name: row['Nombre'] || row['NOMBRE'] || 'Sin Nombre',
+                            dni: dni,
+                            phone: row['Teléfono'] === '—' ? '' : String(row['Teléfono']),
+                            email: email,
+                            plan: plan,
+                            daysPerWeek: days,
+                            fee: parseInt(String(row['Cuota ($)'] || '0').replace(/\D/g, '')),
+                            pathologies: row['Patologías/Lesiones'] === 'Ninguna' ? '' : row['Patologías/Lesiones'],
+                            routine: [] 
+                        };
+
+                        // 2. Try to find individual sheet for routine
+                        let memberSheet = null;
+                        for (const sName of workbook.SheetNames) {
+                            if (sName === "Lista General") continue;
+                            const sheet = workbook.Sheets[sName];
+                            const sheetDni = sheet['B3'] ? String(sheet['B3'].v).trim() : (sheet['B4'] ? String(sheet['B4'].v).trim() : '');
+                            if (sheetDni === dni) {
+                                memberSheet = sheet;
+                                break;
+                            }
+                        }
+
+                        if (memberSheet) {
+                            const routine = [];
+                            for (let r = 0; r < ROUTINE_ROWS; r++) {
+                                const rowCells = [];
+                                for (let d = 0; d < ROUTINE_DAYS; d++) {
+                                    const colLetter = String.fromCharCode(66 + d); // B, C, D, E, F, G (B is Day 1)
+                                    const cellRef = colLetter + (14 + r); // Routine starts at line 14
+                                    const cell = memberSheet[cellRef];
+                                    const val = cell ? String(cell.v) : '';
+                                    
+                                    if (val && val !== '—') {
+                                        const lines = val.split('\n');
+                                        const ejercicio = lines[0] || '';
+                                        let series = '';
+                                        let rep = '';
+                                        let peso = '';
+
+                                        const srMatch = val.match(/\(([^x]+)x([^)]+)\)/);
+                                        if (srMatch) {
+                                            series = srMatch[1];
+                                            rep = srMatch[2];
+                                        }
+                                        const pMatch = val.match(/\[([^\]]+)\]/);
+                                        if (pMatch) peso = pMatch[1];
+
+                                        rowCells.push({ ejercicio, series, rep, peso });
+                                    } else {
+                                        rowCells.push({ ejercicio: '', series: '', rep: '', peso: '' });
+                                    }
+                                }
+                                routine.push(rowCells);
+                            }
+                            member.routine = routine;
+                        }
+
+                        // Auto-create Auth Account if email exists AND no auth_id yet
+                        if (member.email && member.dni && !existingAuthId) {
+                            try {
+                                console.log(`[Import] Creating account for ${member.email}...`);
+                                const { data: authData, error: authError } = await window.supabaseApp.auth.signUp({
+                                    email: member.email,
+                                    password: member.dni 
+                                });
+
+                                if (!authError && authData.user) {
+                                    member.auth_id = authData.user.id;
+                                    console.log(`[Import] Account created for DNI ${member.dni}`);
+                                } else if (authError && authError.message.includes('already registered')) {
+                                    console.warn(`[Import] Email ${member.email} already exists in Auth.`);
+                                } else if (authError) {
+                                    console.error(`[Import] Auth Error for ${member.email}:`, authError.message);
+                                }
+                                // Small delay to avoid rate limiting
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                            } catch (err) {
+                                console.error(`[Import] Unexpected Auth Error:`, err);
+                            }
+                        }
+
+                        if (existing) {
+                            member.id = existing.id;
+                            await updateMember(member);
+                        } else {
+                            await addMember(member);
+                        }
+                        importedCount++;
+                    } catch (err) {
+                        console.error('[admin.js] Error importing row:', row, err);
+                        errorCount++;
+                    }
+                }
+
+                alert(`Importación completada.\n\nFichas creadas: ${importedCount}\nErrores/Existentes: ${errorCount}\n\nNota: Si no ves los mails en Supabase, revisá que la columna en el Excel se llame exactamente "Email".`);
+                await refreshAll();
+                
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalContent;
+                }
+                document.getElementById('import-excel-file').value = ''; // Reset input
+            } catch (err) {
+                console.error('[admin.js] Error processing Excel data:', err);
+                alert('Error al procesar el archivo: ' + err.message);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalContent;
+                }
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    } catch (err) {
+        console.error('[admin.js] Error in importMembersFromExcel:', err);
+        alert('Error: ' + err.message);
+    }
 }
 
 /**
@@ -918,3 +1118,213 @@ async function saveLibraryRoutineAction() {
         btn.innerHTML = originalText;
     }
 }
+
+
+// --- EXCEL-LIKE BEHAVIOR ---
+document.addEventListener('DOMContentLoaded', () => {
+    const table = document.getElementById('routine-edit-table');
+    let isSelecting = false;
+    let isFilling = false;
+    let startCell = null;
+    
+    function clearSelection() {
+        document.querySelectorAll('.rc.selected-cell').forEach(el => el.classList.remove('selected-cell'));
+    }
+
+    function selectRange(startEl, endEl) {
+        clearSelection();
+        if (!startEl || !endEl) return;
+        const allRc = Array.from(document.querySelectorAll('.rc'));
+        const idx1 = allRc.indexOf(startEl);
+        const idx2 = allRc.indexOf(endEl);
+        if (idx1 === -1 || idx2 === -1) return;
+        
+        const cols = ROUTINE_DAYS * 4;
+        const r1 = Math.floor(idx1 / cols);
+        const c1 = idx1 % cols;
+        const r2 = Math.floor(idx2 / cols);
+        const c2 = idx2 % cols;
+        
+        const minR = Math.min(r1, r2);
+        const maxR = Math.max(r1, r2);
+        const minC = Math.min(c1, c2);
+        const maxC = Math.max(c1, c2);
+        
+        for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+                const el = allRc[r * cols + c];
+                if (el) el.classList.add('selected-cell');
+            }
+        }
+    }
+
+    if(table) {
+        table.addEventListener('mousemove', (e) => {
+            if (!isSelecting && !isFilling && e.target.classList.contains('rc')) {
+                const rect = e.target.getBoundingClientRect();
+                // Bottom-right 12x12 pixels is the fill handle zone
+                if (rect.right - e.clientX <= 12 && rect.bottom - e.clientY <= 12) {
+                    e.target.style.cursor = 'crosshair';
+                } else {
+                    e.target.style.cursor = 'text';
+                }
+            }
+        });
+
+        table.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('rc')) {
+                if (e.target.style.cursor === 'crosshair') {
+                    isFilling = true;
+                    startCell = e.target;
+                } else {
+                    isSelecting = true;
+                    startCell = e.target;
+                    if (!e.shiftKey) {
+                        clearSelection();
+                        startCell.classList.add('selected-cell');
+                    } else {
+                        const selected = document.querySelectorAll('.rc.selected-cell');
+                        if (selected.length > 0) {
+                            selectRange(selected[0], startCell);
+                        }
+                    }
+                }
+            } else {
+                clearSelection();
+            }
+        });
+
+        table.addEventListener('mouseover', (e) => {
+            if ((isSelecting || isFilling) && e.target.classList.contains('rc')) {
+                selectRange(startCell, e.target);
+            }
+        });
+
+        table.addEventListener('keydown', (e) => {
+            if (e.target.classList.contains('rc')) {
+                const allRc = Array.from(document.querySelectorAll('.rc'));
+                const idx = allRc.indexOf(e.target);
+                const cols = ROUTINE_DAYS * 4;
+                let nextIdx = -1;
+
+                if (e.key === 'Enter' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    nextIdx = idx + cols;
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    nextIdx = idx - cols;
+                } else if (e.key === 'ArrowRight' && e.target.selectionStart === e.target.value.length) {
+                    nextIdx = idx + 1;
+                } else if (e.key === 'ArrowLeft' && e.target.selectionEnd === 0) {
+                    nextIdx = idx - 1;
+                } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                    const selected = document.querySelectorAll('.rc.selected-cell');
+                    if (selected.length > 1) {
+                        e.preventDefault();
+                        selected.forEach(el => el.value = '');
+                    }
+                }
+
+                if (nextIdx >= 0 && nextIdx < allRc.length) {
+                    allRc[nextIdx].focus();
+                    if (!e.shiftKey) {
+                        clearSelection();
+                        allRc[nextIdx].classList.add('selected-cell');
+                        startCell = allRc[nextIdx];
+                    } else {
+                        selectRange(startCell || e.target, allRc[nextIdx]);
+                    }
+                }
+            }
+        });
+    }
+
+    document.addEventListener('mouseup', () => {
+        if (isFilling) {
+            const selected = document.querySelectorAll('.rc.selected-cell');
+            if(startCell) {
+                const val = startCell.value;
+                selected.forEach(el => {
+                    if (el !== startCell) {
+                        el.value = val;
+                    }
+                });
+            }
+            isFilling = false;
+        }
+        if (isSelecting) {
+            isSelecting = false;
+        }
+    });
+    
+    document.addEventListener('copy', (e) => {
+        const selected = Array.from(document.querySelectorAll('.rc.selected-cell'));
+        if (selected.length === 0) return;
+        
+        let matrix = {};
+        const cols = ROUTINE_DAYS * 4;
+        selected.forEach(el => {
+            const allRc = Array.from(document.querySelectorAll('.rc'));
+            const idx = allRc.indexOf(el);
+            const r = Math.floor(idx / cols);
+            const c = idx % cols;
+            if (!matrix[r]) matrix[r] = {};
+            matrix[r][c] = el.value;
+        });
+        
+        let rows = Object.keys(matrix).sort((a,b)=>a-b);
+        let clipString = rows.map(r => {
+            let colsArr = Object.keys(matrix[r]).sort((a,b)=>a-b);
+            return colsArr.map(c => matrix[r][c]).join('\t');
+        }).join('\n');
+        
+        e.clipboardData.setData('text/plain', clipString);
+        e.preventDefault();
+    });
+
+    document.addEventListener('paste', (e) => {
+        const active = document.activeElement;
+        if (!active || !active.classList.contains('rc')) return;
+        
+        const pasteData = (e.clipboardData || window.clipboardData).getData('text');
+        if (!pasteData) return;
+        
+        e.preventDefault();
+        const rows = pasteData.split(/\r?\n/);
+        
+        const allRc = Array.from(document.querySelectorAll('.rc'));
+        const startIdx = allRc.indexOf(active);
+        const colsCount = ROUTINE_DAYS * 4;
+        const startR = Math.floor(startIdx / colsCount);
+        const startC = startIdx % colsCount;
+        
+        clearSelection();
+        let endEl = null;
+
+        for (let i = 0; i < rows.length; i++) {
+            const cols = rows[i].split('\t');
+            for (let j = 0; j < cols.length; j++) {
+                const targetR = startR + i;
+                const targetC = startC + j;
+                if (targetR < ROUTINE_ROWS && targetC < colsCount) {
+                    const el = allRc[targetR * colsCount + targetC];
+                    if (el) {
+                        el.value = cols[j];
+                        el.classList.add('selected-cell');
+                        endEl = el;
+                    }
+                }
+            }
+        }
+        if (!startCell) startCell = active;
+    });
+
+    const btnClear = document.getElementById('btn-clear-routine');
+    if (btnClear) {
+        btnClear.addEventListener('click', () => {
+            if (confirm('¿Seguro que querés limpiar toda la rutina actual?')) {
+                document.querySelectorAll('.rc').forEach(el => el.value = '');
+            }
+        });
+    }
+});
