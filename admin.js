@@ -3,7 +3,7 @@
 // ============================================================
 
 const ROWS_PER_PAGE = 15;
-const ROUTINE_ROWS = 10;
+const ROUTINE_ROWS = 20;
 const ROUTINE_DAYS = 6;
 const ROUTINE_FIELDS = ['Ejercicio', 'Series', 'Rep', 'Peso'];
 let currentPage = 1;
@@ -750,12 +750,10 @@ async function importMembersFromExcel(file) {
                         // Normalize DNI (remove non-digits like dots or spaces)
                         dni = dni.replace(/\D/g, '');
 
-                        // Check if member already exists to avoid duplicates
+                        // Check if member already exists - we will UPDATE instead of skipping
                         const existing = await getMemberByDni(dni);
-                        if (existing) {
-                            console.warn(`[admin.js] Member with DNI ${dni} already exists. Skipping.`);
-                            continue;
-                        }
+                        let memberId = existing ? existing.id : null;
+                        let existingAuthId = existing ? existing.auth_id : null;
 
                         // Map Plan
                         let plan = 'estandar';
@@ -842,8 +840,8 @@ async function importMembersFromExcel(file) {
                             member.routine = routine;
                         }
 
-                        // Auto-create Auth Account if email exists
-                        if (member.email && member.dni) {
+                        // Auto-create Auth Account if email exists AND no auth_id yet
+                        if (member.email && member.dni && !existingAuthId) {
                             try {
                                 console.log(`[Import] Creating account for ${member.email}...`);
                                 const { data: authData, error: authError } = await window.supabaseApp.auth.signUp({
@@ -866,7 +864,12 @@ async function importMembersFromExcel(file) {
                             }
                         }
 
-                        await addMember(member);
+                        if (existing) {
+                            member.id = existing.id;
+                            await updateMember(member);
+                        } else {
+                            await addMember(member);
+                        }
                         importedCount++;
                     } catch (err) {
                         console.error('[admin.js] Error importing row:', row, err);
@@ -1116,3 +1119,212 @@ async function saveLibraryRoutineAction() {
     }
 }
 
+
+// --- EXCEL-LIKE BEHAVIOR ---
+document.addEventListener('DOMContentLoaded', () => {
+    const table = document.getElementById('routine-edit-table');
+    let isSelecting = false;
+    let isFilling = false;
+    let startCell = null;
+    
+    function clearSelection() {
+        document.querySelectorAll('.rc.selected-cell').forEach(el => el.classList.remove('selected-cell'));
+    }
+
+    function selectRange(startEl, endEl) {
+        clearSelection();
+        if (!startEl || !endEl) return;
+        const allRc = Array.from(document.querySelectorAll('.rc'));
+        const idx1 = allRc.indexOf(startEl);
+        const idx2 = allRc.indexOf(endEl);
+        if (idx1 === -1 || idx2 === -1) return;
+        
+        const cols = ROUTINE_DAYS * 4;
+        const r1 = Math.floor(idx1 / cols);
+        const c1 = idx1 % cols;
+        const r2 = Math.floor(idx2 / cols);
+        const c2 = idx2 % cols;
+        
+        const minR = Math.min(r1, r2);
+        const maxR = Math.max(r1, r2);
+        const minC = Math.min(c1, c2);
+        const maxC = Math.max(c1, c2);
+        
+        for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+                const el = allRc[r * cols + c];
+                if (el) el.classList.add('selected-cell');
+            }
+        }
+    }
+
+    if(table) {
+        table.addEventListener('mousemove', (e) => {
+            if (!isSelecting && !isFilling && e.target.classList.contains('rc')) {
+                const rect = e.target.getBoundingClientRect();
+                // Bottom-right 12x12 pixels is the fill handle zone
+                if (rect.right - e.clientX <= 12 && rect.bottom - e.clientY <= 12) {
+                    e.target.style.cursor = 'crosshair';
+                } else {
+                    e.target.style.cursor = 'text';
+                }
+            }
+        });
+
+        table.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('rc')) {
+                if (e.target.style.cursor === 'crosshair') {
+                    isFilling = true;
+                    startCell = e.target;
+                } else {
+                    isSelecting = true;
+                    startCell = e.target;
+                    if (!e.shiftKey) {
+                        clearSelection();
+                        startCell.classList.add('selected-cell');
+                    } else {
+                        const selected = document.querySelectorAll('.rc.selected-cell');
+                        if (selected.length > 0) {
+                            selectRange(selected[0], startCell);
+                        }
+                    }
+                }
+            } else {
+                clearSelection();
+            }
+        });
+
+        table.addEventListener('mouseover', (e) => {
+            if ((isSelecting || isFilling) && e.target.classList.contains('rc')) {
+                selectRange(startCell, e.target);
+            }
+        });
+
+        table.addEventListener('keydown', (e) => {
+            if (e.target.classList.contains('rc')) {
+                const allRc = Array.from(document.querySelectorAll('.rc'));
+                const idx = allRc.indexOf(e.target);
+                const cols = ROUTINE_DAYS * 4;
+                let nextIdx = -1;
+
+                if (e.key === 'Enter' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    nextIdx = idx + cols;
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    nextIdx = idx - cols;
+                } else if (e.key === 'ArrowRight' && e.target.selectionStart === e.target.value.length) {
+                    nextIdx = idx + 1;
+                } else if (e.key === 'ArrowLeft' && e.target.selectionEnd === 0) {
+                    nextIdx = idx - 1;
+                } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                    const selected = document.querySelectorAll('.rc.selected-cell');
+                    if (selected.length > 1) {
+                        e.preventDefault();
+                        selected.forEach(el => el.value = '');
+                    }
+                }
+
+                if (nextIdx >= 0 && nextIdx < allRc.length) {
+                    allRc[nextIdx].focus();
+                    if (!e.shiftKey) {
+                        clearSelection();
+                        allRc[nextIdx].classList.add('selected-cell');
+                        startCell = allRc[nextIdx];
+                    } else {
+                        selectRange(startCell || e.target, allRc[nextIdx]);
+                    }
+                }
+            }
+        });
+    }
+
+    document.addEventListener('mouseup', () => {
+        if (isFilling) {
+            const selected = document.querySelectorAll('.rc.selected-cell');
+            if(startCell) {
+                const val = startCell.value;
+                selected.forEach(el => {
+                    if (el !== startCell) {
+                        el.value = val;
+                    }
+                });
+            }
+            isFilling = false;
+        }
+        if (isSelecting) {
+            isSelecting = false;
+        }
+    });
+    
+    document.addEventListener('copy', (e) => {
+        const selected = Array.from(document.querySelectorAll('.rc.selected-cell'));
+        if (selected.length === 0) return;
+        
+        let matrix = {};
+        const cols = ROUTINE_DAYS * 4;
+        selected.forEach(el => {
+            const allRc = Array.from(document.querySelectorAll('.rc'));
+            const idx = allRc.indexOf(el);
+            const r = Math.floor(idx / cols);
+            const c = idx % cols;
+            if (!matrix[r]) matrix[r] = {};
+            matrix[r][c] = el.value;
+        });
+        
+        let rows = Object.keys(matrix).sort((a,b)=>a-b);
+        let clipString = rows.map(r => {
+            let colsArr = Object.keys(matrix[r]).sort((a,b)=>a-b);
+            return colsArr.map(c => matrix[r][c]).join('\t');
+        }).join('\n');
+        
+        e.clipboardData.setData('text/plain', clipString);
+        e.preventDefault();
+    });
+
+    document.addEventListener('paste', (e) => {
+        const active = document.activeElement;
+        if (!active || !active.classList.contains('rc')) return;
+        
+        const pasteData = (e.clipboardData || window.clipboardData).getData('text');
+        if (!pasteData) return;
+        
+        e.preventDefault();
+        const rows = pasteData.split(/\r?\n/);
+        
+        const allRc = Array.from(document.querySelectorAll('.rc'));
+        const startIdx = allRc.indexOf(active);
+        const colsCount = ROUTINE_DAYS * 4;
+        const startR = Math.floor(startIdx / colsCount);
+        const startC = startIdx % colsCount;
+        
+        clearSelection();
+        let endEl = null;
+
+        for (let i = 0; i < rows.length; i++) {
+            const cols = rows[i].split('\t');
+            for (let j = 0; j < cols.length; j++) {
+                const targetR = startR + i;
+                const targetC = startC + j;
+                if (targetR < ROUTINE_ROWS && targetC < colsCount) {
+                    const el = allRc[targetR * colsCount + targetC];
+                    if (el) {
+                        el.value = cols[j];
+                        el.classList.add('selected-cell');
+                        endEl = el;
+                    }
+                }
+            }
+        }
+        if (!startCell) startCell = active;
+    });
+
+    const btnClear = document.getElementById('btn-clear-routine');
+    if (btnClear) {
+        btnClear.addEventListener('click', () => {
+            if (confirm('¿Seguro que querés limpiar toda la rutina actual?')) {
+                document.querySelectorAll('.rc').forEach(el => el.value = '');
+            }
+        });
+    }
+});
