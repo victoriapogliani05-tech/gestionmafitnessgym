@@ -561,6 +561,24 @@ async function confirmDeleteReview(id) {
 }
 
 // ── Routines Library ──────────────────────────────────────────
+function getLibRoutineDaySummary(routine) {
+    const data = routine.exercises; // grid stored in exercises field
+    const dayCounts = [];
+    if (!Array.isArray(data) || data.length === 0 || !Array.isArray(data[0])) {
+        // Old format (simple exercise list) or empty
+        return null;
+    }
+    for (let d = 0; d < ROUTINE_DAYS; d++) {
+        let count = 0;
+        for (let r = 0; r < data.length; r++) {
+            const cell = data[r]?.[d];
+            if (cell && (cell.ejercicio || cell.series || cell.rep || cell.peso)) count++;
+        }
+        dayCounts.push(count);
+    }
+    return dayCounts;
+}
+
 async function renderRoutinesLibrary() {
     const grid = document.getElementById('routines-grid');
     if (!grid) return;
@@ -584,28 +602,45 @@ async function renderRoutinesLibrary() {
         return;
     }
 
-    grid.innerHTML = routines.map((r, i) => `
+    grid.innerHTML = routines.map((r, i) => {
+        const dayCounts = getLibRoutineDaySummary(r);
+        let bodyContent = '';
+        if (dayCounts) {
+            bodyContent = dayCounts.map((count, d) => `
+                <div class="exercise-row">
+                    <span>Día ${d + 1}</span>
+                    <span class="text-muted">${count > 0 ? count + ' ejercicio' + (count !== 1 ? 's' : '') : '—'}</span>
+                </div>
+            `).join('');
+        } else {
+            // Old format fallback
+            const exArr = Array.isArray(r.exercises) ? r.exercises : [];
+            bodyContent = exArr.map(e => `
+                <div class="exercise-row">
+                    <span>${e.name || ''}</span>
+                    <span class="text-muted">${e.sets || ''}×${e.reps || ''}</span>
+                </div>
+            `).join('');
+        }
+        return `
         <div class="routine-card">
             <div class="routine-img" style="background-image:url('${images[i % images.length]}')">
-                <span class="routine-level">${r.level}</span>
-                <button class="icon-btn delete lib-delete-btn" title="Eliminar de la biblioteca" onclick="handleDeleteLibRoutine(${r.id})">
+                <span class="routine-level">${r.level || 'Intermedio'}</span>
+                <button class="icon-btn delete lib-delete-btn" title="Eliminar" onclick="handleDeleteLibRoutine(${r.id})">
                     <i class="fas fa-trash"></i>
                 </button>
             </div>
             <div class="routine-body">
                 <h3>${r.name}</h3>
-                <p class="text-muted">${r.days}</p>
-                <div class="routine-exercises">
-                    ${r.exercises.map(e => `
-                        <div class="exercise-row">
-                            <span>${e.name}</span>
-                            <span class="text-muted">${e.sets}×${e.reps}</span>
-                        </div>
-                    `).join('')}
+                <div class="routine-exercises" style="margin-top:10px;">
+                    ${bodyContent}
                 </div>
+                <button class="btn-primary" style="width:100%;margin-top:14px;justify-content:center;" onclick="openLibRoutineEditor(${r.id})">
+                    <i class="fas fa-edit"></i> Editar Rutina
+                </button>
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 async function handleDeleteLibRoutine(id) {
@@ -633,12 +668,15 @@ function bindEvents() {
         if (e.target === e.currentTarget) closeModal();
     });
 
-    // Library Routine Creation
-    document.getElementById('btn-open-create-routine')?.addEventListener('click', openLibRoutineModal);
-    document.getElementById('lib-routine-close')?.addEventListener('click', closeLibRoutineModal);
-    document.getElementById('lib-routine-cancel')?.addEventListener('click', closeLibRoutineModal);
-    document.getElementById('lib-routine-save')?.addEventListener('click', saveLibraryRoutineAction);
-    document.getElementById('btn-lib-add-exercise')?.addEventListener('click', () => addLibExerciseRow());
+    // Library Routine Fullscreen Editor
+    document.getElementById('btn-open-create-routine')?.addEventListener('click', openLibRoutineEditorNew);
+    document.getElementById('btn-save-lib-routine')?.addEventListener('click', saveLibRoutine);
+    document.getElementById('btn-close-lib-routine')?.addEventListener('click', closeLibRoutineEditor);
+    document.getElementById('btn-clear-lib-routine')?.addEventListener('click', () => {
+        if (confirm('¿Seguro que querés limpiar toda la rutina?')) {
+            document.querySelectorAll('.lrc').forEach(el => el.value = '');
+        }
+    });
 
     // Auto-set fee when plan changes
     document.getElementById('edit-plan').addEventListener('change', e => {
@@ -662,6 +700,16 @@ function bindEvents() {
     // Routine editor
     document.getElementById('btn-save-routine').addEventListener('click', saveRoutine);
     document.getElementById('btn-close-routine').addEventListener('click', closeRoutineEditor);
+
+    // Load library routine into member editor
+    document.getElementById('btn-load-lib-routine')?.addEventListener('click', toggleLibRoutineDropdown);
+    document.addEventListener('click', (e) => {
+        const wrapper = document.getElementById('load-lib-routine-wrapper');
+        const dropdown = document.getElementById('lib-routine-dropdown');
+        if (wrapper && dropdown && !wrapper.contains(e.target)) {
+            dropdown.style.display = 'none';
+        }
+    });
 
     document.getElementById('btn-reset-db').addEventListener('click', async () => {
         const confirmText = prompt('¿Borrar TODOS los socios? Esta acción no se puede deshacer.\n\nPara confirmar, escribe "BORRAR" debajo:');
@@ -1042,278 +1090,301 @@ async function handleSavePlans() {
     }
 }
 
-// ── Library Routine Modal Logic ───────────────────────────────
-function openLibRoutineModal() {
-    const overlay = document.getElementById('lib-routine-overlay');
-    if (!overlay) return;
-    
-    // Clear inputs
-    document.getElementById('lib-routine-name').value = '';
-    document.getElementById('lib-routine-level').value = 'Intermedio';
-    document.getElementById('lib-routine-days').value = '';
-    document.getElementById('lib-routine-exercises-list').innerHTML = '';
-    
-    // Add 3 empty rows by default
-    for (let i = 0; i < 3; i++) addLibExerciseRow();
-    
-    overlay.classList.add('open');
+// ── Library Routine Fullscreen Editor ─────────────────────────
+async function openLibRoutineEditor(routineId) {
+    const routines = await loadLibraryRoutines();
+    const routine = routines.find(r => r.id === routineId);
+    if (!routine) return;
+
+    document.getElementById('lib-routine-edit-id').value = routine.id;
+    document.getElementById('lib-rt-name').value = routine.name || '';
+    document.getElementById('lib-rt-level').value = routine.level || 'Intermedio';
+
+    buildLibRoutineTable(routine.exercises);
+    document.getElementById('lib-routine-overlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
 }
 
-function closeLibRoutineModal() {
-    document.getElementById('lib-routine-overlay').classList.remove('open');
+function openLibRoutineEditorNew() {
+    document.getElementById('lib-routine-edit-id').value = '';
+    document.getElementById('lib-rt-name').value = '';
+    document.getElementById('lib-rt-level').value = 'Intermedio';
+
+    buildLibRoutineTable([]);
+    document.getElementById('lib-routine-overlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
 }
 
-function addLibExerciseRow(name = '', sets = '', reps = '') {
-    const list = document.getElementById('lib-routine-exercises-list');
-    const row = document.createElement('div');
-    row.className = 'lib-exercise-row';
-    row.innerHTML = `
-        <input type="text" placeholder="Ejercicio" class="lib-ex-name" value="${name}">
-        <input type="text" placeholder="Series" class="lib-ex-sets" value="${sets}" style="width:60px;">
-        <input type="text" placeholder="Reps" class="lib-ex-reps" value="${reps}" style="width:60px;">
-        <button class="icon-btn delete sm" onclick="this.parentElement.remove()" title="Eliminar"><i class="fas fa-times"></i></button>
-    `;
-    list.appendChild(row);
-}
-
-async function saveLibraryRoutineAction() {
-    const name = document.getElementById('lib-routine-name').value.trim();
-    const level = document.getElementById('lib-routine-level').value;
-    const days = document.getElementById('lib-routine-days').value.trim();
-    
-    if (!name || !days) {
-        alert('Por favor completa el nombre y los días de la rutina.');
-        return;
+function buildLibRoutineTable(routineData) {
+    // Build thead
+    let theadHtml = '<tr class="routine-day-header">';
+    for (let d = 0; d < ROUTINE_DAYS; d++) {
+        theadHtml += `<th colspan="4">Día ${d + 1}</th>`;
     }
-    
-    const exercises = [];
-    document.querySelectorAll('.lib-exercise-row').forEach(row => {
-        const exName = row.querySelector('.lib-ex-name').value.trim();
-        const exSets = row.querySelector('.lib-ex-sets').value.trim();
-        const exReps = row.querySelector('.lib-ex-reps').value.trim();
-        
-        if (exName) {
-            exercises.push({ name: exName, sets: exSets, reps: exReps });
+    theadHtml += '</tr><tr class="routine-sub-header">';
+    for (let d = 0; d < ROUTINE_DAYS; d++) {
+        ROUTINE_FIELDS.forEach(f => { theadHtml += `<th>${f}</th>`; });
+    }
+    theadHtml += '</tr>';
+    document.getElementById('lib-routine-edit-thead').innerHTML = theadHtml;
+
+    // Build tbody
+    const data = (Array.isArray(routineData) && routineData.length > 0 && Array.isArray(routineData[0])) ? routineData : [];
+    let tbodyHtml = '';
+    for (let r = 0; r < ROUTINE_ROWS; r++) {
+        const row = data[r] || [];
+        tbodyHtml += '<tr>';
+        for (let d = 0; d < ROUTINE_DAYS; d++) {
+            const day = row[d] || {};
+
+            const ej = (day.ejercicio || '').replace(/"/g, '&quot;');
+            const se = (day.series || '').replace(/"/g, '&quot;');
+            const re = (day.rep || '').replace(/"/g, '&quot;');
+            const pe = (day.peso || '').replace(/"/g, '&quot;');
+            tbodyHtml += `<td><input type="text" class="lrc" data-r="${r}" data-d="${d}" data-f="ejercicio" value="${ej}" placeholder="—"></td>`;
+            tbodyHtml += `<td><input type="text" class="lrc lrc-sm" data-r="${r}" data-d="${d}" data-f="series" value="${se}" placeholder="—"></td>`;
+            tbodyHtml += `<td><input type="text" class="lrc lrc-sm" data-r="${r}" data-d="${d}" data-f="rep" value="${re}" placeholder="—"></td>`;
+            tbodyHtml += `<td><input type="text" class="lrc lrc-sm" data-r="${r}" data-d="${d}" data-f="peso" value="${pe}" placeholder="—"></td>`;
         }
-    });
-    
-    if (exercises.length === 0) {
-        alert('Agrega al menos un ejercicio a la rutina.');
+        tbodyHtml += '</tr>';
+    }
+    document.getElementById('lib-routine-edit-tbody').innerHTML = tbodyHtml;
+}
+
+function closeLibRoutineEditor() {
+    document.getElementById('lib-routine-overlay').classList.remove('open');
+    document.body.style.overflow = '';
+}
+
+async function saveLibRoutine() {
+    const name = document.getElementById('lib-rt-name').value.trim();
+    const level = document.getElementById('lib-rt-level').value;
+    const editId = document.getElementById('lib-routine-edit-id').value;
+
+    if (!name) {
+        alert('Por favor ingresá un nombre para la rutina.');
         return;
     }
-    
-    const btn = document.getElementById('lib-routine-save');
-    const originalText = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
-    
+
+    // Collect grid data
+    const routineData = [];
+    for (let r = 0; r < ROUTINE_ROWS; r++) {
+        const row = [];
+        for (let d = 0; d < ROUTINE_DAYS; d++) {
+            const getVal = f => {
+                const el = document.querySelector(`.lrc[data-r="${r}"][data-d="${d}"][data-f="${f}"]`);
+                return el ? el.value.trim() : '';
+            };
+            row.push({
+                ejercicio: getVal('ejercicio'),
+                series: getVal('series'),
+                rep: getVal('rep'),
+                peso: getVal('peso')
+            });
+        }
+        routineData.push(row);
+    }
+
     try {
-        await addLibraryRoutine({ name, level, days, exercises });
-        closeLibRoutineModal();
+        if (editId) {
+            await updateLibraryRoutine({ id: parseInt(editId), name, level, routine_data: routineData });
+        } else {
+            await addLibraryRoutine({ name, level, routine_data: routineData });
+        }
+        closeLibRoutineEditor();
         await renderRoutinesLibrary();
     } catch (err) {
         alert('Error al guardar la rutina: ' + err.message);
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalText;
     }
 }
 
+// ── Load Library Routine into Member Editor ───────────────────
+async function toggleLibRoutineDropdown() {
+    const dropdown = document.getElementById('lib-routine-dropdown');
+    if (dropdown.style.display !== 'none') {
+        dropdown.style.display = 'none';
+        return;
+    }
 
-// --- EXCEL-LIKE BEHAVIOR ---
+    const list = document.getElementById('lib-routine-dropdown-list');
+    list.innerHTML = '<p style="padding:16px;text-align:center;color:var(--text-secondary);font-size:0.85rem;"><i class="fas fa-spinner fa-spin"></i> Cargando...</p>';
+    dropdown.style.display = 'block';
+
+    const routines = await loadLibraryRoutines();
+    if (routines.length === 0) {
+        list.innerHTML = '<p style="padding:16px;text-align:center;color:var(--text-secondary);font-size:0.85rem;">No hay rutinas pre-armadas.</p>';
+        return;
+    }
+
+    list.innerHTML = routines.map(r => `
+        <div class="lib-routine-dropdown-item" onclick="applyLibRoutineToMember(${r.id})">
+            <span class="item-name">${r.name}</span>
+            <span class="item-level">${r.level || 'Intermedio'}</span>
+        </div>
+    `).join('');
+}
+
+async function applyLibRoutineToMember(routineId) {
+    const routines = await loadLibraryRoutines();
+    const routine = routines.find(r => r.id === routineId);
+    if (!routine) return;
+
+    const data = routine.exercises;
+    // Check if it's the new grid format
+    if (!Array.isArray(data) || data.length === 0 || !Array.isArray(data[0])) {
+        alert('Esta rutina usa un formato antiguo. Editala primero desde la Biblioteca para convertirla.');
+        return;
+    }
+
+    if (!confirm(`¿Cargar la rutina "${routine.name}"? Esto va a reemplazar todos los datos actuales.`)) return;
+
+    // Fill the member editor grid (.rc inputs)
+    for (let r = 0; r < ROUTINE_ROWS; r++) {
+        for (let d = 0; d < ROUTINE_DAYS; d++) {
+            const cell = data[r]?.[d] || {};
+            const fields = { ejercicio: cell.ejercicio || '', series: cell.series || '', rep: cell.rep || '', peso: cell.peso || '' };
+            for (const [f, val] of Object.entries(fields)) {
+                const el = document.querySelector(`.rc[data-r="${r}"][data-d="${d}"][data-f="${f}"]`);
+                if (el) el.value = val;
+            }
+        }
+    }
+
+    // Close dropdown
+    document.getElementById('lib-routine-dropdown').style.display = 'none';
+}
+
+
+
+// --- EXCEL-LIKE BEHAVIOR (works for both member .rc and library .lrc) ---
 document.addEventListener('DOMContentLoaded', () => {
-    const table = document.getElementById('routine-edit-table');
+    const memberTable = document.getElementById('routine-edit-table');
+    const libTable = document.getElementById('lib-routine-edit-table');
     let isSelecting = false;
     let isFilling = false;
     let startCell = null;
-    
+
+    function getCellClass(el) {
+        if (el.classList.contains('rc')) return 'rc';
+        if (el.classList.contains('lrc')) return 'lrc';
+        return null;
+    }
+
     function clearSelection() {
-        document.querySelectorAll('.rc.selected-cell').forEach(el => el.classList.remove('selected-cell'));
+        document.querySelectorAll('.rc.selected-cell, .lrc.selected-cell').forEach(el => el.classList.remove('selected-cell'));
     }
 
     function selectRange(startEl, endEl) {
         clearSelection();
         if (!startEl || !endEl) return;
-        const allRc = Array.from(document.querySelectorAll('.rc'));
-        const idx1 = allRc.indexOf(startEl);
-        const idx2 = allRc.indexOf(endEl);
+        const cls = getCellClass(startEl);
+        if (!cls) return;
+        const allCells = Array.from(document.querySelectorAll('.' + cls));
+        const idx1 = allCells.indexOf(startEl);
+        const idx2 = allCells.indexOf(endEl);
         if (idx1 === -1 || idx2 === -1) return;
-        
         const cols = ROUTINE_DAYS * 4;
-        const r1 = Math.floor(idx1 / cols);
-        const c1 = idx1 % cols;
-        const r2 = Math.floor(idx2 / cols);
-        const c2 = idx2 % cols;
-        
-        const minR = Math.min(r1, r2);
-        const maxR = Math.max(r1, r2);
-        const minC = Math.min(c1, c2);
-        const maxC = Math.max(c1, c2);
-        
+        const r1 = Math.floor(idx1 / cols), c1 = idx1 % cols;
+        const r2 = Math.floor(idx2 / cols), c2 = idx2 % cols;
+        const minR = Math.min(r1, r2), maxR = Math.max(r1, r2);
+        const minC = Math.min(c1, c2), maxC = Math.max(c1, c2);
         for (let r = minR; r <= maxR; r++) {
             for (let c = minC; c <= maxC; c++) {
-                const el = allRc[r * cols + c];
+                const el = allCells[r * cols + c];
                 if (el) el.classList.add('selected-cell');
             }
         }
     }
 
-    if(table) {
-        table.addEventListener('mousemove', (e) => {
-            if (!isSelecting && !isFilling && e.target.classList.contains('rc')) {
+    function setupTableEvents(tableEl) {
+        if (!tableEl) return;
+        const cls = tableEl.id.startsWith('lib') ? 'lrc' : 'rc';
+        tableEl.addEventListener('mousemove', (e) => {
+            if (!isSelecting && !isFilling && e.target.classList.contains(cls)) {
                 const rect = e.target.getBoundingClientRect();
-                // Bottom-right 12x12 pixels is the fill handle zone
-                if (rect.right - e.clientX <= 12 && rect.bottom - e.clientY <= 12) {
-                    e.target.style.cursor = 'crosshair';
-                } else {
-                    e.target.style.cursor = 'text';
+                e.target.style.cursor = (rect.right - e.clientX <= 12 && rect.bottom - e.clientY <= 12) ? 'crosshair' : 'text';
+            }
+        });
+        tableEl.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains(cls)) {
+                if (e.target.style.cursor === 'crosshair') { isFilling = true; startCell = e.target; }
+                else {
+                    isSelecting = true; startCell = e.target;
+                    if (!e.shiftKey) { clearSelection(); startCell.classList.add('selected-cell'); }
+                    else { const sel = document.querySelectorAll('.' + cls + '.selected-cell'); if (sel.length > 0) selectRange(sel[0], startCell); }
                 }
-            }
+            } else { clearSelection(); }
         });
-
-        table.addEventListener('mousedown', (e) => {
-            if (e.target.classList.contains('rc')) {
-                if (e.target.style.cursor === 'crosshair') {
-                    isFilling = true;
-                    startCell = e.target;
-                } else {
-                    isSelecting = true;
-                    startCell = e.target;
-                    if (!e.shiftKey) {
-                        clearSelection();
-                        startCell.classList.add('selected-cell');
-                    } else {
-                        const selected = document.querySelectorAll('.rc.selected-cell');
-                        if (selected.length > 0) {
-                            selectRange(selected[0], startCell);
-                        }
-                    }
-                }
-            } else {
-                clearSelection();
-            }
+        tableEl.addEventListener('mouseover', (e) => {
+            if ((isSelecting || isFilling) && e.target.classList.contains(cls)) selectRange(startCell, e.target);
         });
-
-        table.addEventListener('mouseover', (e) => {
-            if ((isSelecting || isFilling) && e.target.classList.contains('rc')) {
-                selectRange(startCell, e.target);
-            }
-        });
-
-        table.addEventListener('keydown', (e) => {
-            if (e.target.classList.contains('rc')) {
-                const allRc = Array.from(document.querySelectorAll('.rc'));
-                const idx = allRc.indexOf(e.target);
+        tableEl.addEventListener('keydown', (e) => {
+            if (e.target.classList.contains(cls)) {
+                const allCells = Array.from(document.querySelectorAll('.' + cls));
+                const idx = allCells.indexOf(e.target);
                 const cols = ROUTINE_DAYS * 4;
                 let nextIdx = -1;
-
-                if (e.key === 'Enter' || e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    nextIdx = idx + cols;
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    nextIdx = idx - cols;
-                } else if (e.key === 'ArrowRight' && e.target.selectionStart === e.target.value.length) {
-                    nextIdx = idx + 1;
-                } else if (e.key === 'ArrowLeft' && e.target.selectionEnd === 0) {
-                    nextIdx = idx - 1;
-                } else if (e.key === 'Delete' || e.key === 'Backspace') {
-                    const selected = document.querySelectorAll('.rc.selected-cell');
-                    if (selected.length > 1) {
-                        e.preventDefault();
-                        selected.forEach(el => el.value = '');
-                    }
+                if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); nextIdx = idx + cols; }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); nextIdx = idx - cols; }
+                else if (e.key === 'ArrowRight' && e.target.selectionStart === e.target.value.length) nextIdx = idx + 1;
+                else if (e.key === 'ArrowLeft' && e.target.selectionEnd === 0) nextIdx = idx - 1;
+                else if (e.key === 'Delete' || e.key === 'Backspace') {
+                    const sel = document.querySelectorAll('.' + cls + '.selected-cell');
+                    if (sel.length > 1) { e.preventDefault(); sel.forEach(el => el.value = ''); }
                 }
-
-                if (nextIdx >= 0 && nextIdx < allRc.length) {
-                    allRc[nextIdx].focus();
-                    if (!e.shiftKey) {
-                        clearSelection();
-                        allRc[nextIdx].classList.add('selected-cell');
-                        startCell = allRc[nextIdx];
-                    } else {
-                        selectRange(startCell || e.target, allRc[nextIdx]);
-                    }
+                if (nextIdx >= 0 && nextIdx < allCells.length) {
+                    allCells[nextIdx].focus();
+                    if (!e.shiftKey) { clearSelection(); allCells[nextIdx].classList.add('selected-cell'); startCell = allCells[nextIdx]; }
+                    else { selectRange(startCell || e.target, allCells[nextIdx]); }
                 }
             }
         });
     }
 
+    setupTableEvents(memberTable);
+    setupTableEvents(libTable);
+
     document.addEventListener('mouseup', () => {
-        if (isFilling) {
-            const selected = document.querySelectorAll('.rc.selected-cell');
-            if(startCell) {
-                const val = startCell.value;
-                selected.forEach(el => {
-                    if (el !== startCell) {
-                        el.value = val;
-                    }
-                });
-            }
+        if (isFilling && startCell) {
+            const val = startCell.value;
+            document.querySelectorAll('.rc.selected-cell, .lrc.selected-cell').forEach(el => { if (el !== startCell) el.value = val; });
             isFilling = false;
         }
-        if (isSelecting) {
-            isSelecting = false;
-        }
+        if (isSelecting) isSelecting = false;
     });
-    
+
     document.addEventListener('copy', (e) => {
-        const selected = Array.from(document.querySelectorAll('.rc.selected-cell'));
+        const selected = Array.from(document.querySelectorAll('.rc.selected-cell, .lrc.selected-cell'));
         if (selected.length === 0) return;
-        
+        const cls = getCellClass(selected[0]);
+        if (!cls) return;
         let matrix = {};
         const cols = ROUTINE_DAYS * 4;
-        selected.forEach(el => {
-            const allRc = Array.from(document.querySelectorAll('.rc'));
-            const idx = allRc.indexOf(el);
-            const r = Math.floor(idx / cols);
-            const c = idx % cols;
-            if (!matrix[r]) matrix[r] = {};
-            matrix[r][c] = el.value;
-        });
-        
-        let rows = Object.keys(matrix).sort((a,b)=>a-b);
-        let clipString = rows.map(r => {
-            let colsArr = Object.keys(matrix[r]).sort((a,b)=>a-b);
-            return colsArr.map(c => matrix[r][c]).join('\t');
-        }).join('\n');
-        
-        e.clipboardData.setData('text/plain', clipString);
+        const allCells = Array.from(document.querySelectorAll('.' + cls));
+        selected.forEach(el => { const idx = allCells.indexOf(el); const r = Math.floor(idx / cols), c = idx % cols; if (!matrix[r]) matrix[r] = {}; matrix[r][c] = el.value; });
+        let rows = Object.keys(matrix).sort((a, b) => a - b);
+        e.clipboardData.setData('text/plain', rows.map(r => Object.keys(matrix[r]).sort((a, b) => a - b).map(c => matrix[r][c]).join('\t')).join('\n'));
         e.preventDefault();
     });
 
     document.addEventListener('paste', (e) => {
         const active = document.activeElement;
-        if (!active || !active.classList.contains('rc')) return;
-        
+        const cls = active ? getCellClass(active) : null;
+        if (!cls) return;
         const pasteData = (e.clipboardData || window.clipboardData).getData('text');
         if (!pasteData) return;
-        
         e.preventDefault();
         const rows = pasteData.split(/\r?\n/);
-        
-        const allRc = Array.from(document.querySelectorAll('.rc'));
-        const startIdx = allRc.indexOf(active);
+        const allCells = Array.from(document.querySelectorAll('.' + cls));
+        const startIdx = allCells.indexOf(active);
         const colsCount = ROUTINE_DAYS * 4;
-        const startR = Math.floor(startIdx / colsCount);
-        const startC = startIdx % colsCount;
-        
+        const startR = Math.floor(startIdx / colsCount), startC = startIdx % colsCount;
         clearSelection();
-        let endEl = null;
-
         for (let i = 0; i < rows.length; i++) {
             const cols = rows[i].split('\t');
             for (let j = 0; j < cols.length; j++) {
-                const targetR = startR + i;
-                const targetC = startC + j;
-                if (targetR < ROUTINE_ROWS && targetC < colsCount) {
-                    const el = allRc[targetR * colsCount + targetC];
-                    if (el) {
-                        el.value = cols[j];
-                        el.classList.add('selected-cell');
-                        endEl = el;
-                    }
-                }
+                const tR = startR + i, tC = startC + j;
+                if (tR < ROUTINE_ROWS && tC < colsCount) { const el = allCells[tR * colsCount + tC]; if (el) { el.value = cols[j]; el.classList.add('selected-cell'); } }
             }
         }
         if (!startCell) startCell = active;
@@ -1328,3 +1399,4 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+

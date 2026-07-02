@@ -2288,7 +2288,8 @@ h6 {
 }
 
 /* Input cells in editor */
-.rc {
+.rc,
+.lrc {
     width: 100%;
     background-color: transparent;
     border: none;
@@ -2301,12 +2302,14 @@ h6 {
     min-width: 80px;
 }
 
-.rc-sm {
+.rc-sm,
+.lrc-sm {
     text-align: center;
     min-width: 45px;
 }
 
 .rc:focus,
+.lrc:focus,
 .rt-weight-input:focus {
     background-color: transparent;
     outline: 2px solid var(--accent-primary);
@@ -2314,6 +2317,7 @@ h6 {
 }
 
 .rc::placeholder,
+.lrc::placeholder,
 .rt-weight-input::placeholder {
     color: var(--text-muted);
     opacity: 0.3;
@@ -3072,6 +3076,57 @@ textarea::placeholder {
     }
 }
 /* Excel-like selection */
-.rc.selected-cell { background-color: rgba(66, 133, 244, 0.2) !important; outline: 1px solid #4285f4; }
-.rc.selected-cell::selection { background: transparent; }
+.rc.selected-cell, .lrc.selected-cell { background-color: rgba(66, 133, 244, 0.2) !important; outline: 1px solid #4285f4; }
+.rc.selected-cell::selection, .lrc.selected-cell::selection { background: transparent; }
+
+/* Library routine dropdown picker */
+.lib-routine-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 10000;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    min-width: 280px;
+    max-height: 360px;
+    overflow-y: auto;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    margin-top: 6px;
+}
+
+.lib-routine-dropdown-item {
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: var(--transition);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.lib-routine-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.lib-routine-dropdown-item:hover {
+    background: var(--bg-card-hover);
+}
+
+.lib-routine-dropdown-item .item-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.lib-routine-dropdown-item .item-level {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(195, 151, 119, 0.15);
+    color: var(--accent-primary);
+    font-weight: 600;
+    white-space: nowrap;
+}
 

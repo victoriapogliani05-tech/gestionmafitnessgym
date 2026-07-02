@@ -44,6 +44,13 @@
                 <h2><i class="fas fa-dumbbell"></i> Rutina — <span id="routine-member-name"></span></h2>
             </div>
             <div class="routine-fs-actions">
+                <div style="position:relative;display:inline-block;" id="load-lib-routine-wrapper">
+                    <button class="btn-outline" id="btn-load-lib-routine" style="color: #c39777; border-color: #c39777; margin-right: 10px;"><i class="fas fa-book"></i> Cargar Pre-armada</button>
+                    <div id="lib-routine-dropdown" class="lib-routine-dropdown" style="display:none;">
+                        <p style="padding:10px 14px;margin:0;color:var(--text-secondary);font-size:0.8rem;border-bottom:1px solid var(--border-color);">Seleccioná una rutina:</p>
+                        <div id="lib-routine-dropdown-list"></div>
+                    </div>
+                </div>
                 <button class="btn-outline" id="btn-clear-routine" style="color: #ff4d4d; border-color: #ff4d4d; margin-right: 10px;"><i class="fas fa-broom"></i> Limpiar Rutina</button>
                 <button class="btn-primary" id="btn-save-routine"><i class="fas fa-save"></i> Guardar</button>
                 <button class="btn-secondary" id="btn-close-routine"><i class="fas fa-times"></i> Cerrar</button>
@@ -345,48 +352,33 @@
         </div>
     </div>
 
-    <!-- ── Create Library Routine Modal ─────────────────────── -->
-    <div class="modal-overlay" id="lib-routine-overlay">
-        <div class="modal" style="max-width: 600px;">
-            <div class="modal-header">
-                <h2>Crear Nueva Rutina Pre-armada</h2>
-                <button class="modal-close" id="lib-routine-close"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="modal-body">
-                <div class="form-grid">
-                    <div class="form-group" style="grid-column: 1 / -1;">
-                        <label>Nombre de la Rutina</label>
-                        <input type="text" id="lib-routine-name" placeholder="Ej: Hipertrofia Tren Superior">
-                    </div>
-                    <div class="form-group">
-                        <label>Nivel</label>
-                        <select id="lib-routine-level">
-                            <option value="Principiante">Principiante</option>
-                            <option value="Intermedio">Intermedio</option>
-                            <option value="Avanzado">Avanzado</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Días / Frecuencia</label>
-                        <input type="text" id="lib-routine-days" placeholder="Ej: Lunes / Miércoles / Viernes">
-                    </div>
-                </div>
-
-                <div style="margin-top: 25px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <h3 style="font-size: 1rem; color: var(--text-primary);">Ejercicios</h3>
-                        <button class="btn-outline sm" id="btn-lib-add-exercise">
-                            <i class="fas fa-plus"></i> Agregar Ejercicio
-                        </button>
-                    </div>
-                    <div id="lib-routine-exercises-list" class="lib-exercises-container">
-                        <!-- Exercise rows will be added here -->
-                    </div>
+    <!-- ── Full-Screen Library Routine Editor ───────────────────── -->
+    <div class="routine-fullscreen-overlay" id="lib-routine-overlay">
+        <div class="routine-fullscreen-header">
+            <div class="routine-fs-title" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+                <h2><i class="fas fa-book"></i> Rutina Pre-armada</h2>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <input type="text" id="lib-rt-name" placeholder="Nombre de la rutina" style="background:var(--bg-dark);border:1px solid var(--border-color);color:var(--text-primary);padding:8px 14px;border-radius:10px;font-family:inherit;font-size:0.95rem;min-width:220px;outline:none;">
+                    <select id="lib-rt-level" style="background:var(--bg-dark);border:1px solid var(--border-color);color:var(--text-primary);padding:8px 14px;border-radius:10px;font-family:inherit;font-size:0.95rem;outline:none;cursor:pointer;">
+                        <option value="Principiante">Principiante</option>
+                        <option value="Intermedio" selected>Intermedio</option>
+                        <option value="Avanzado">Avanzado</option>
+                    </select>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" id="lib-routine-cancel">Cancelar</button>
-                <button class="btn-primary" id="lib-routine-save"><i class="fas fa-save"></i> Crear Rutina</button>
+            <div class="routine-fs-actions">
+                <button class="btn-outline" id="btn-clear-lib-routine" style="color: #ff4d4d; border-color: #ff4d4d; margin-right: 10px;"><i class="fas fa-broom"></i> Limpiar</button>
+                <button class="btn-primary" id="btn-save-lib-routine"><i class="fas fa-save"></i> Guardar</button>
+                <button class="btn-secondary" id="btn-close-lib-routine"><i class="fas fa-times"></i> Cerrar</button>
+            </div>
+        </div>
+        <div class="routine-fullscreen-body">
+            <input type="hidden" id="lib-routine-edit-id">
+            <div class="routine-table-scroll">
+                <table class="routine-edit-table" id="lib-routine-edit-table">
+                    <thead id="lib-routine-edit-thead"></thead>
+                    <tbody id="lib-routine-edit-tbody"></tbody>
+                </table>
             </div>
         </div>
     </div>
