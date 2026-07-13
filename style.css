@@ -3323,6 +3323,185 @@ textarea::placeholder {
     color: var(--text-secondary);
 }
 
+/* ── Plan Accordion (Expandable) ─────────────────────────── */
+.fin-plan-accordion {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.fin-plan-accordion:last-child {
+    border-bottom: none;
+}
+
+.fin-plan-accordion .fin-plan-row {
+    cursor: pointer;
+    border-bottom: none;
+    user-select: none;
+}
+
+.fin-plan-chevron {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    flex-shrink: 0;
+    transition: var(--transition);
+}
+
+.fin-plan-accordion.open .fin-plan-chevron {
+    transform: rotate(180deg);
+    color: var(--accent-primary);
+    background: var(--accent-glow);
+}
+
+.fin-plan-detail {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+                padding 0.3s ease;
+    padding: 0 16px;
+}
+
+.fin-plan-accordion.open .fin-plan-detail {
+    max-height: 2000px;
+    padding: 0 16px 20px;
+}
+
+/* Groups inside expanded detail */
+.fin-expand-group {
+    margin-top: 12px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.fin-expand-group-header {
+    padding: 10px 16px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.fin-expand-group-header.success {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.fin-expand-group-header.warning {
+    background: var(--warning-bg);
+    color: var(--warning);
+}
+
+.fin-expand-member {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(58, 48, 40, 0.5);
+    transition: var(--transition);
+}
+
+.fin-expand-member:last-child {
+    border-bottom: none;
+}
+
+.fin-expand-member:hover {
+    background: var(--bg-card-hover);
+}
+
+.fin-expand-member-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+}
+
+.fin-expand-member-fee {
+    font-weight: 600;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+
+.fin-expand-member-fee.pending {
+    color: var(--warning);
+    font-style: italic;
+    font-weight: 500;
+}
+
+/* Inline fee editing */
+.fin-fee-edit-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 2px 8px;
+    transition: var(--transition);
+}
+
+.fin-fee-edit-wrap:focus-within {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.fin-fee-prefix {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.fin-fee-input {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    width: 80px;
+    outline: none;
+    text-align: right;
+    -moz-appearance: textfield;
+}
+
+.fin-fee-input::-webkit-outer-spin-button,
+.fin-fee-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.fin-fee-input.empty {
+    color: var(--warning);
+}
+
+.fin-fee-save-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+}
+
+.fin-fee-save-btn:hover {
+    color: var(--success);
+    background: rgba(126, 207, 160, 0.1);
+}
+
+
 /* ── Metric List (Averages) ──────────────────────────────── */
 .fin-metric-list {
     display: flex;

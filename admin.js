@@ -194,6 +194,44 @@ async function refreshAll() {
 }
 
 // ── Financiero (Financial Dashboard) ──────────────────────────
+function toggleFinPlanDetail(rowEl) {
+    const accordion = rowEl.closest('.fin-plan-accordion');
+    if (!accordion) return;
+    accordion.classList.toggle('open');
+}
+
+async function saveFinFee(memberId, inputEl) {
+    const newFee = parseInt(inputEl.value) || 0;
+    const btn = inputEl.parentElement.querySelector('.fin-fee-save-btn');
+    if (btn) {
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+    }
+    try {
+        const members = await loadMembers();
+        const member = members.find(m => m.id === memberId);
+        if (member) {
+            member.fee = newFee;
+            await updateMember(member);
+        }
+        await refreshAll();
+    } catch (err) {
+        console.error('Error saving fee:', err);
+        alert('Error al guardar: ' + err.message);
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-check"></i>';
+            btn.disabled = false;
+        }
+    }
+}
+
+function handleFinFeeKeydown(e, memberId) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        saveFinFee(memberId, e.target);
+    }
+}
+
 function renderFinanciero(members) {
     if (!members || members.length === 0) {
         document.getElementById('fin-total-revenue').textContent = '$0';
@@ -224,9 +262,15 @@ function renderFinanciero(members) {
     const pendingRevenue = unpaidMembers.reduce((sum, m) => sum + (m.fee || 0), 0);
     const collectionRate = totalMembers > 0 ? Math.round((paidMembers.length / totalMembers) * 100) : 0;
 
+    // Count members without price
+    const membersNoPriceCount = members.filter(m => !m.fee || m.fee === 0).length;
+
     // Top stat cards
     document.getElementById('fin-total-revenue').textContent = formatCurrency(totalRevenue);
-    document.getElementById('fin-total-sub').textContent = `${totalMembers} socio${totalMembers !== 1 ? 's' : ''} activos`;
+    const totalSubText = membersNoPriceCount > 0
+        ? `${totalMembers} socios · ⚠️ ${membersNoPriceCount} sin precio`
+        : `${totalMembers} socio${totalMembers !== 1 ? 's' : ''} activos`;
+    document.getElementById('fin-total-sub').textContent = totalSubText;
     
     document.getElementById('fin-collected').textContent = formatCurrency(collectedRevenue);
     document.getElementById('fin-collected-sub').textContent = `${paidMembers.length} socio${paidMembers.length !== 1 ? 's' : ''} pagados`;
@@ -239,15 +283,21 @@ function renderFinanciero(members) {
 
     // --- Plan breakdown ---
     const planGroups = {};
+    const planMembersList = {};
     members.forEach(m => {
         const planKey = m.plan || 'estandar';
-        if (!planGroups[planKey]) planGroups[planKey] = { count: 0, total: 0, paid: 0, paidTotal: 0 };
+        if (!planGroups[planKey]) {
+            planGroups[planKey] = { count: 0, total: 0, paid: 0, paidTotal: 0, noPrice: 0 };
+            planMembersList[planKey] = [];
+        }
         planGroups[planKey].count++;
         planGroups[planKey].total += (m.fee || 0);
+        if (!m.fee || m.fee === 0) planGroups[planKey].noPrice++;
         if (isPaidThisMonth(m)) {
             planGroups[planKey].paid++;
             planGroups[planKey].paidTotal += (m.fee || 0);
         }
+        planMembersList[planKey].push(m);
     });
 
     const planColors = {
@@ -262,19 +312,76 @@ function renderFinanciero(members) {
         const pct = totalRevenue > 0 ? Math.round((data.total / totalRevenue) * 100) : 0;
         const style = planColors[key] || planColors.estandar;
         const paidPct = data.count > 0 ? Math.round((data.paid / data.count) * 100) : 0;
+
+        // Build expandable member lists
+        const planMembers = planMembersList[key] || [];
+        const withPrice = planMembers.filter(m => m.fee && m.fee > 0);
+        const withoutPrice = planMembers.filter(m => !m.fee || m.fee === 0);
+        const withPriceTotal = withPrice.reduce((s, m) => s + m.fee, 0);
+
+        let detailHtml = '';
+
+        if (withPrice.length > 0) {
+            detailHtml += `
+                <div class="fin-expand-group">
+                    <div class="fin-expand-group-header success">
+                        <i class="fas fa-check-circle"></i> Con precio (${withPrice.length}) — ${formatCurrency(withPriceTotal)}
+                    </div>
+                    ${withPrice.map(m => `
+                        <div class="fin-expand-member">
+                            <div class="fin-expand-member-info">
+                                <div class="avatar sm">${getInitials(m.name)}</div>
+                                <span>${m.name}</span>
+                            </div>
+                            <div class="fin-fee-edit-wrap">
+                                <span class="fin-fee-prefix">$</span>
+                                <input type="number" class="fin-fee-input" value="${m.fee || 0}" step="500" onkeydown="handleFinFeeKeydown(event, ${m.id})">
+                                <button class="fin-fee-save-btn" onclick="saveFinFee(${m.id}, this.parentElement.querySelector('.fin-fee-input'))" title="Guardar"><i class="fas fa-check"></i></button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>`;
+        }
+
+        if (withoutPrice.length > 0) {
+            detailHtml += `
+                <div class="fin-expand-group">
+                    <div class="fin-expand-group-header warning">
+                        <i class="fas fa-exclamation-triangle"></i> Sin precio (${withoutPrice.length})
+                    </div>
+                    ${withoutPrice.map(m => `
+                        <div class="fin-expand-member">
+                            <div class="fin-expand-member-info">
+                                <div class="avatar sm">${getInitials(m.name)}</div>
+                                <span>${m.name}</span>
+                            </div>
+                            <div class="fin-fee-edit-wrap">
+                                <span class="fin-fee-prefix">$</span>
+                                <input type="number" class="fin-fee-input empty" value="" placeholder="Precio" step="500" onkeydown="handleFinFeeKeydown(event, ${m.id})">
+                                <button class="fin-fee-save-btn" onclick="saveFinFee(${m.id}, this.parentElement.querySelector('.fin-fee-input'))" title="Guardar"><i class="fas fa-check"></i></button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>`;
+        }
+
         return `
-        <div class="fin-plan-row">
-            <div class="fin-plan-icon" style="background:${style.bg};color:${style.color};">
-                <i class="${style.icon}"></i>
+        <div class="fin-plan-accordion">
+            <div class="fin-plan-row" onclick="toggleFinPlanDetail(this)">
+                <div class="fin-plan-icon" style="background:${style.bg};color:${style.color};">
+                    <i class="${style.icon}"></i>
+                </div>
+                <div class="fin-plan-details">
+                    <div class="fin-plan-name">${planNames[key] || key}</div>
+                    <div class="fin-plan-meta">${data.count} socio${data.count !== 1 ? 's' : ''}${data.noPrice > 0 ? ' · <span style="color:var(--warning);">⚠️ ' + data.noPrice + ' sin precio</span>' : ''} · Cobro: ${paidPct}%</div>
+                </div>
+                <div class="fin-plan-amounts">
+                    <div class="fin-plan-total">${formatCurrency(data.total)}</div>
+                    <div class="fin-plan-pct">${pct}% del total</div>
+                </div>
+                <div class="fin-plan-chevron"><i class="fas fa-chevron-down"></i></div>
             </div>
-            <div class="fin-plan-details">
-                <div class="fin-plan-name">${planNames[key] || key}</div>
-                <div class="fin-plan-meta">${data.count} socio${data.count !== 1 ? 's' : ''} · Cobro: ${paidPct}%</div>
-            </div>
-            <div class="fin-plan-amounts">
-                <div class="fin-plan-total">${formatCurrency(data.total)}</div>
-                <div class="fin-plan-pct">${pct}% del total</div>
-            </div>
+            <div class="fin-plan-detail">${detailHtml}</div>
         </div>`;
     }).join('');
 
