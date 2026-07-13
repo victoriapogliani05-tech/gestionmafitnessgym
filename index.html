@@ -91,6 +91,9 @@
                 <button class="nav-btn" data-target="plans-config">
                     <i class="fas fa-tags"></i> Planes
                 </button>
+                <button class="nav-btn" data-target="financiero">
+                    <i class="fas fa-chart-line"></i> Financiero
+                </button>
             </nav>
             <div class="sidebar-footer">
                 <a href="index.html" class="nav-btn" title="Ir a la web pública">
@@ -284,6 +287,92 @@
                                 </div>
                             </div>
                             <p id="plans-config-msg" style="margin-top: 15px; font-weight: 600;"></p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ── Financiero ──────────────────────────── -->
+                <section id="financiero" class="view-section">
+                    <!-- Top Revenue Cards -->
+                    <div class="fin-stats-grid">
+                        <div class="fin-stat-card fin-total">
+                            <div class="fin-stat-icon"><i class="fas fa-coins"></i></div>
+                            <div class="fin-stat-info">
+                                <span class="fin-stat-label">Total a Cobrar</span>
+                                <span class="fin-stat-value" id="fin-total-revenue">—</span>
+                                <span class="fin-stat-sub" id="fin-total-sub"></span>
+                            </div>
+                        </div>
+                        <div class="fin-stat-card fin-collected">
+                            <div class="fin-stat-icon"><i class="fas fa-check-double"></i></div>
+                            <div class="fin-stat-info">
+                                <span class="fin-stat-label">Cobrado Este Mes</span>
+                                <span class="fin-stat-value" id="fin-collected">—</span>
+                                <span class="fin-stat-sub" id="fin-collected-sub"></span>
+                            </div>
+                        </div>
+                        <div class="fin-stat-card fin-pending">
+                            <div class="fin-stat-icon"><i class="fas fa-hourglass-half"></i></div>
+                            <div class="fin-stat-info">
+                                <span class="fin-stat-label">Pendiente de Cobro</span>
+                                <span class="fin-stat-value" id="fin-pending">—</span>
+                                <span class="fin-stat-sub" id="fin-pending-sub"></span>
+                            </div>
+                        </div>
+                        <div class="fin-stat-card fin-rate">
+                            <div class="fin-stat-icon"><i class="fas fa-percentage"></i></div>
+                            <div class="fin-stat-info">
+                                <span class="fin-stat-label">Tasa de Cobro</span>
+                                <span class="fin-stat-value" id="fin-rate">—</span>
+                                <span class="fin-stat-sub" id="fin-rate-sub"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Revenue Breakdown -->
+                    <div class="fin-widgets-row">
+                        <div class="widget fin-breakdown-widget">
+                            <div class="widget-header">
+                                <h3><i class="fas fa-chart-pie"></i> Desglose por Tipo de Plan</h3>
+                            </div>
+                            <div class="widget-body" id="fin-plan-breakdown"></div>
+                        </div>
+                        <div class="widget fin-avg-widget">
+                            <div class="widget-header">
+                                <h3><i class="fas fa-calculator"></i> Métricas Promedio</h3>
+                            </div>
+                            <div class="widget-body" id="fin-averages"></div>
+                        </div>
+                    </div>
+
+                    <!-- Days Breakdown -->
+                    <div class="widget" style="margin-top: 24px;">
+                        <div class="widget-header">
+                            <h3><i class="fas fa-calendar-alt"></i> Ingresos Estándar por Cantidad de Días</h3>
+                        </div>
+                        <div class="widget-body" id="fin-days-breakdown"></div>
+                    </div>
+
+                    <!-- Unpaid Members List -->
+                    <div class="widget" style="margin-top: 24px;">
+                        <div class="widget-header">
+                            <h3><i class="fas fa-exclamation-triangle"></i> Socios con Cuota Pendiente (<span id="fin-unpaid-count">0</span>)</h3>
+                        </div>
+                        <div class="widget-body">
+                            <div class="table-container" style="border: none; border-radius: 0;">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Socio</th>
+                                            <th>Plan</th>
+                                            <th>Cuota</th>
+                                            <th>Acción</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="fin-unpaid-tbody"></tbody>
+                                </table>
+                            </div>
+                            <p class="text-muted" id="fin-unpaid-empty" style="display:none; text-align:center; padding:20px;">🎉 ¡Todos los socios están al día!</p>
                         </div>
                     </div>
                 </section>

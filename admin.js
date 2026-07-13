@@ -166,6 +166,7 @@ function initNav() {
         routines: { t: 'Biblioteca de Rutinas', s: 'Rutinas predefinidas disponibles para asignar.' },
         'reviews-admin': { t: 'Reseñas Públicas', s: 'Modera las reseñas dejadas por los alumnos.' },
         'plans-config': { t: 'Configuración de Planes', s: 'Ajustá los precios generales de los planes.' },
+        'financiero': { t: 'Panel Financiero', s: 'Resumen de ingresos, cobros y cuotas del mes.' },
     };
 
     btns.forEach(btn => {
@@ -189,6 +190,199 @@ async function refreshAll() {
     await renderRoutinesLibrary();
     await loadAdminReviews();
     await loadPlansConfig();
+    renderFinanciero(members);
+}
+
+// ── Financiero (Financial Dashboard) ──────────────────────────
+function renderFinanciero(members) {
+    if (!members || members.length === 0) {
+        document.getElementById('fin-total-revenue').textContent = '$0';
+        document.getElementById('fin-total-sub').textContent = '0 socios';
+        document.getElementById('fin-collected').textContent = '$0';
+        document.getElementById('fin-collected-sub').textContent = '0 socios pagados';
+        document.getElementById('fin-pending').textContent = '$0';
+        document.getElementById('fin-pending-sub').textContent = '0 pendientes';
+        document.getElementById('fin-rate').textContent = '0%';
+        document.getElementById('fin-rate-sub').textContent = 'del mes';
+        document.getElementById('fin-plan-breakdown').innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">Sin datos.</p>';
+        document.getElementById('fin-averages').innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">Sin datos.</p>';
+        document.getElementById('fin-days-breakdown').innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">Sin datos.</p>';
+        document.getElementById('fin-unpaid-tbody').innerHTML = '';
+        document.getElementById('fin-unpaid-empty').style.display = 'block';
+        document.getElementById('fin-unpaid-count').textContent = '0';
+        return;
+    }
+
+    const currentMonth = getMonthName();
+    const totalMembers = members.length;
+    const paidMembers = members.filter(m => isPaidThisMonth(m));
+    const unpaidMembers = members.filter(m => !isPaidThisMonth(m));
+
+    // Calculate totals
+    const totalRevenue = members.reduce((sum, m) => sum + (m.fee || 0), 0);
+    const collectedRevenue = paidMembers.reduce((sum, m) => sum + (m.fee || 0), 0);
+    const pendingRevenue = unpaidMembers.reduce((sum, m) => sum + (m.fee || 0), 0);
+    const collectionRate = totalMembers > 0 ? Math.round((paidMembers.length / totalMembers) * 100) : 0;
+
+    // Top stat cards
+    document.getElementById('fin-total-revenue').textContent = formatCurrency(totalRevenue);
+    document.getElementById('fin-total-sub').textContent = `${totalMembers} socio${totalMembers !== 1 ? 's' : ''} activos`;
+    
+    document.getElementById('fin-collected').textContent = formatCurrency(collectedRevenue);
+    document.getElementById('fin-collected-sub').textContent = `${paidMembers.length} socio${paidMembers.length !== 1 ? 's' : ''} pagados`;
+    
+    document.getElementById('fin-pending').textContent = formatCurrency(pendingRevenue);
+    document.getElementById('fin-pending-sub').textContent = `${unpaidMembers.length} pendiente${unpaidMembers.length !== 1 ? 's' : ''}`;
+    
+    document.getElementById('fin-rate').textContent = `${collectionRate}%`;
+    document.getElementById('fin-rate-sub').textContent = `${currentMonth}`;
+
+    // --- Plan breakdown ---
+    const planGroups = {};
+    members.forEach(m => {
+        const planKey = m.plan || 'estandar';
+        if (!planGroups[planKey]) planGroups[planKey] = { count: 0, total: 0, paid: 0, paidTotal: 0 };
+        planGroups[planKey].count++;
+        planGroups[planKey].total += (m.fee || 0);
+        if (isPaidThisMonth(m)) {
+            planGroups[planKey].paid++;
+            planGroups[planKey].paidTotal += (m.fee || 0);
+        }
+    });
+
+    const planColors = {
+        estandar: { bg: 'rgba(195, 151, 119, 0.15)', color: '#c39777', icon: 'fas fa-dumbbell' },
+        personalizado: { bg: 'rgba(126, 207, 160, 0.15)', color: '#7ecfa0', icon: 'fas fa-user-cog' },
+        online: { bg: 'rgba(100, 180, 255, 0.15)', color: '#64b4ff', icon: 'fas fa-laptop' }
+    };
+
+    const planNames = { estandar: 'Estándar', personalizado: 'Personalizado', online: 'Online' };
+
+    document.getElementById('fin-plan-breakdown').innerHTML = Object.entries(planGroups).map(([key, data]) => {
+        const pct = totalRevenue > 0 ? Math.round((data.total / totalRevenue) * 100) : 0;
+        const style = planColors[key] || planColors.estandar;
+        const paidPct = data.count > 0 ? Math.round((data.paid / data.count) * 100) : 0;
+        return `
+        <div class="fin-plan-row">
+            <div class="fin-plan-icon" style="background:${style.bg};color:${style.color};">
+                <i class="${style.icon}"></i>
+            </div>
+            <div class="fin-plan-details">
+                <div class="fin-plan-name">${planNames[key] || key}</div>
+                <div class="fin-plan-meta">${data.count} socio${data.count !== 1 ? 's' : ''} · Cobro: ${paidPct}%</div>
+            </div>
+            <div class="fin-plan-amounts">
+                <div class="fin-plan-total">${formatCurrency(data.total)}</div>
+                <div class="fin-plan-pct">${pct}% del total</div>
+            </div>
+        </div>`;
+    }).join('');
+
+    // --- Average metrics ---
+    const avgFee = totalMembers > 0 ? Math.round(totalRevenue / totalMembers) : 0;
+    const avgFeeEstandar = (() => {
+        const est = members.filter(m => m.plan === 'estandar');
+        if (est.length === 0) return 0;
+        return Math.round(est.reduce((s, m) => s + (m.fee || 0), 0) / est.length);
+    })();
+    const avgFeePersonalizado = (() => {
+        const pers = members.filter(m => m.plan === 'personalizado');
+        if (pers.length === 0) return 0;
+        return Math.round(pers.reduce((s, m) => s + (m.fee || 0), 0) / pers.length);
+    })();
+    const feesWithValue = members.filter(m => m.fee > 0).map(m => m.fee);
+    const maxFee = feesWithValue.length > 0 ? Math.max(...feesWithValue) : 0;
+    const minFee = feesWithValue.length > 0 ? Math.min(...feesWithValue) : 0;
+
+    document.getElementById('fin-averages').innerHTML = `
+        <div class="fin-metric-list">
+            <div class="fin-metric-item">
+                <span class="fin-metric-label"><i class="fas fa-equals"></i> Cuota Promedio General</span>
+                <span class="fin-metric-value">${formatCurrency(avgFee)}</span>
+            </div>
+            <div class="fin-metric-item">
+                <span class="fin-metric-label"><i class="fas fa-dumbbell"></i> Promedio Estándar</span>
+                <span class="fin-metric-value">${formatCurrency(avgFeeEstandar)}</span>
+            </div>
+            <div class="fin-metric-item">
+                <span class="fin-metric-label"><i class="fas fa-user-cog"></i> Promedio Personalizado</span>
+                <span class="fin-metric-value">${formatCurrency(avgFeePersonalizado)}</span>
+            </div>
+            <div class="fin-metric-item">
+                <span class="fin-metric-label"><i class="fas fa-arrow-up"></i> Cuota Más Alta</span>
+                <span class="fin-metric-value">${formatCurrency(maxFee)}</span>
+            </div>
+            <div class="fin-metric-item">
+                <span class="fin-metric-label"><i class="fas fa-arrow-down"></i> Cuota Más Baja</span>
+                <span class="fin-metric-value">${formatCurrency(minFee)}</span>
+            </div>
+        </div>
+    `;
+
+    // --- Days breakdown (estándar only) ---
+    const daysGroups = {};
+    members.filter(m => m.plan === 'estandar').forEach(m => {
+        const key = m.daysPerWeek || '2';
+        if (!daysGroups[key]) daysGroups[key] = { count: 0, total: 0, paid: 0 };
+        daysGroups[key].count++;
+        daysGroups[key].total += (m.fee || 0);
+        if (isPaidThisMonth(m)) daysGroups[key].paid++;
+    });
+
+    const daysOrder = ['2', '3', '4', '5', 'libre'];
+    const daysLabels = { '2': '2 Días', '3': '3 Días', '4': '4 Días', '5': '5 Días', 'libre': 'Pase Libre' };
+    const totalEstandar = Object.values(daysGroups).reduce((s, g) => s + g.total, 0);
+
+    if (Object.keys(daysGroups).length === 0) {
+        document.getElementById('fin-days-breakdown').innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">No hay socios con plan estándar.</p>';
+    } else {
+        document.getElementById('fin-days-breakdown').innerHTML = `
+            <div class="fin-days-grid">
+                ${daysOrder.filter(d => daysGroups[d]).map(d => {
+                    const g = daysGroups[d];
+                    const pct = totalEstandar > 0 ? Math.round((g.total / totalEstandar) * 100) : 0;
+                    return `
+                    <div class="fin-day-card">
+                        <div class="fin-day-label">${daysLabels[d]}</div>
+                        <div class="fin-day-amount">${formatCurrency(g.total)}</div>
+                        <div class="fin-day-bar-bg">
+                            <div class="fin-day-bar-fill" style="width:${pct}%"></div>
+                        </div>
+                        <div class="fin-day-meta">${g.count} socio${g.count !== 1 ? 's' : ''} · ${g.paid} pagado${g.paid !== 1 ? 's' : ''}</div>
+                    </div>`;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    // --- Unpaid members list ---
+    const unpaidTbody = document.getElementById('fin-unpaid-tbody');
+    const unpaidEmpty = document.getElementById('fin-unpaid-empty');
+    document.getElementById('fin-unpaid-count').textContent = unpaidMembers.length;
+
+    if (unpaidMembers.length === 0) {
+        unpaidTbody.innerHTML = '';
+        unpaidEmpty.style.display = 'block';
+    } else {
+        unpaidEmpty.style.display = 'none';
+        unpaidTbody.innerHTML = unpaidMembers.map(m => `
+            <tr>
+                <td>
+                    <div class="table-user">
+                        <div class="avatar sm">${getInitials(m.name)}</div>
+                        <span>${m.name}</span>
+                    </div>
+                </td>
+                <td>${getPlanDisplayName(m)}</td>
+                <td class="mono" style="font-weight:600; color:var(--danger);">${getFeeDisplay(m)}</td>
+                <td>
+                    <button class="pay-toggle unpaid" onclick="handleTogglePayment(${m.id})" style="font-size:0.8rem;">
+                        <i class="fas fa-check"></i> Marcar Pagado
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    }
 }
 
 // ── Dashboard ─────────────────────────────────────────────────
