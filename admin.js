@@ -151,6 +151,7 @@ async function initApp() {
         return;
     }
 
+    await loadPlanPrices();
     initNav();
     refreshAll();
     bindEvents();
@@ -1344,6 +1345,7 @@ async function exportMembersToExcel() {
 
 // ── Plan Configuration Logic ──────────────────────────────────
 async function loadPlansConfig() {
+    await loadPlanPrices();
     const p = PLANS.estandar.options;
     document.getElementById('plan-fee-2').value = p.find(o => o.days === 2)?.fee || '';
     document.getElementById('plan-fee-3').value = p.find(o => o.days === 3)?.fee || '';
@@ -1366,17 +1368,12 @@ async function handleSavePlans() {
     };
 
     try {
+        // 1. Save persistent plan prices to localStorage & Supabase settings
+        await savePlanPrices(newFees);
+
+        // 2. Update all existing members in Supabase
         for (const [days, fee] of Object.entries(newFees)) {
             if (isNaN(fee)) continue;
-            
-            // 1. Update local PLANS object (volatile but useful for current session)
-            const opt = PLANS.estandar.options.find(o => String(o.days) === String(days));
-            if (opt) {
-                opt.fee = fee;
-                opt.label = `${days === 'libre' ? 'Pase Libre' : days + ' días'} — $${fee.toLocaleString('es-AR')}`;
-            }
-
-            // 2. Update all members in Supabase
             await bulkUpdatePlanFees('estandar', days, fee);
         }
         

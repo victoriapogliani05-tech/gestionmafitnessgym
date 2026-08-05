@@ -1199,3 +1199,85 @@ async function bulkUpdatePlanFees(planId, daysPerWeek, newFee) {
         throw error;
     }
 }
+
+// ── Persistent Plan Prices Helper ────────────────────────────
+function applyFeesToPlans(fees) {
+    if (!fees) return;
+    for (const [days, fee] of Object.entries(fees)) {
+        if (fee === undefined || fee === null || isNaN(fee)) continue;
+        const numFee = parseInt(fee);
+        const opt = PLANS.estandar.options.find(o => String(o.days) === String(days));
+        if (opt) {
+            opt.fee = numFee;
+            opt.label = `${days === 'libre' ? 'Pase Libre' : days + ' días'} — $${numFee.toLocaleString('es-AR')}`;
+        }
+    }
+}
+
+async function loadPlanPrices() {
+    let fees = null;
+
+    // 1. Try to fetch from Supabase 'settings' table (key = 'plan_prices')
+    try {
+        if (window.supabaseApp) {
+            const { data, error } = await window.supabaseApp
+                .from('settings')
+                .select('value')
+                .eq('key', 'plan_prices')
+                .maybeSingle();
+
+            if (!error && data && data.value) {
+                fees = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+            }
+        }
+    } catch (e) {
+        console.warn('[data.js] Could not fetch settings from Supabase:', e);
+    }
+
+    // 2. Fallback to localStorage
+    if (!fees) {
+        try {
+            const local = localStorage.getItem('gym_plan_prices');
+            if (local) fees = JSON.parse(local);
+        } catch (e) {
+            console.warn('[data.js] Could not parse localStorage gym_plan_prices:', e);
+        }
+    }
+
+    // 3. Apply fees to PLANS object if loaded
+    if (fees) {
+        applyFeesToPlans(fees);
+        try {
+            localStorage.setItem('gym_plan_prices', JSON.stringify(fees));
+        } catch (e) {}
+    }
+    return PLANS;
+}
+
+async function savePlanPrices(newFees) {
+    // 1. Apply immediately in memory
+    applyFeesToPlans(newFees);
+
+    // 2. Save to localStorage
+    try {
+        localStorage.setItem('gym_plan_prices', JSON.stringify(newFees));
+    } catch (e) {
+        console.error('[data.js] Error saving to localStorage:', e);
+    }
+
+    // 3. Try to save to Supabase 'settings' table
+    try {
+        if (window.supabaseApp) {
+            const { error } = await window.supabaseApp
+                .from('settings')
+                .upsert({ key: 'plan_prices', value: newFees }, { onConflict: 'key' });
+
+            if (error) {
+                console.warn('[data.js] Supabase settings upsert warning:', error.message);
+            }
+        }
+    } catch (e) {
+        console.warn('[data.js] Could not save plan prices to Supabase settings:', e);
+    }
+}
+
