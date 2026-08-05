@@ -1234,7 +1234,34 @@ async function loadPlanPrices() {
         console.warn('[data.js] Could not fetch settings from Supabase:', e);
     }
 
-    // 2. Fallback to localStorage
+    // 2. If settings table doesn't have it, fetch latest fees from 'members' table in Supabase
+    if (!fees || Object.keys(fees).length === 0) {
+        try {
+            if (window.supabaseApp) {
+                const { data, error } = await window.supabaseApp
+                    .from('members')
+                    .select('days_per_week, fee, id')
+                    .eq('plan', 'estandar')
+                    .not('fee', 'is', null)
+                    .gt('fee', 0)
+                    .order('id', { ascending: false });
+
+                if (!error && data && data.length > 0) {
+                    fees = {};
+                    data.forEach(m => {
+                        const d = String(m.days_per_week);
+                        if (d && m.fee && !fees[d]) {
+                            fees[d] = m.fee;
+                        }
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('[data.js] Could not fetch member fees from Supabase:', e);
+        }
+    }
+
+    // 3. Fallback to localStorage
     if (!fees) {
         try {
             const local = localStorage.getItem('gym_plan_prices');
@@ -1244,8 +1271,8 @@ async function loadPlanPrices() {
         }
     }
 
-    // 3. Apply fees to PLANS object if loaded
-    if (fees) {
+    // 4. Apply fees to PLANS object if loaded
+    if (fees && Object.keys(fees).length > 0) {
         applyFeesToPlans(fees);
         try {
             localStorage.setItem('gym_plan_prices', JSON.stringify(fees));
