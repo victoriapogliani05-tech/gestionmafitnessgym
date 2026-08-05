@@ -71,6 +71,7 @@ async function loadMembers() {
     const { data, error } = await window.supabaseApp
         .from('members')
         .select('*')
+        .neq('dni', 'CONFIG_PRICES')
         .order('id', { ascending: true });
 
     if (error) {
@@ -1217,24 +1218,43 @@ function applyFeesToPlans(fees) {
 async function loadPlanPrices() {
     let fees = null;
 
-    // 1. Try to fetch from Supabase 'settings' table (key = 'plan_prices')
+    // 1. Try to fetch config row from 'members' table in Supabase (dni = 'CONFIG_PRICES')
     try {
         if (window.supabaseApp) {
             const { data, error } = await window.supabaseApp
-                .from('settings')
-                .select('value')
-                .eq('key', 'plan_prices')
+                .from('members')
+                .select('pathologies')
+                .eq('dni', 'CONFIG_PRICES')
                 .maybeSingle();
 
-            if (!error && data && data.value) {
-                fees = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+            if (!error && data && data.pathologies) {
+                try {
+                    fees = JSON.parse(data.pathologies);
+                } catch (e) {}
             }
         }
     } catch (e) {
-        console.warn('[data.js] Could not fetch settings from Supabase:', e);
+        console.warn('[data.js] Could not fetch config row from Supabase:', e);
     }
 
-    // 2. If settings table doesn't have it, fetch latest fees from 'members' table in Supabase
+    // 2. Try to fetch from Supabase 'settings' table (key = 'plan_prices') if available
+    if (!fees || Object.keys(fees).length === 0) {
+        try {
+            if (window.supabaseApp) {
+                const { data, error } = await window.supabaseApp
+                    .from('settings')
+                    .select('value')
+                    .eq('key', 'plan_prices')
+                    .maybeSingle();
+
+                if (!error && data && data.value) {
+                    fees = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+                }
+            }
+        } catch (e) {}
+    }
+
+    // 3. If no config row, fallback to checking actual member fees in Supabase
     if (!fees || Object.keys(fees).length === 0) {
         try {
             if (window.supabaseApp) {
@@ -1242,6 +1262,7 @@ async function loadPlanPrices() {
                     .from('members')
                     .select('days_per_week, fee, id')
                     .eq('plan', 'estandar')
+                    .neq('dni', 'CONFIG_PRICES')
                     .not('fee', 'is', null)
                     .gt('fee', 0)
                     .order('id', { ascending: false });
@@ -1256,22 +1277,18 @@ async function loadPlanPrices() {
                     });
                 }
             }
-        } catch (e) {
-            console.warn('[data.js] Could not fetch member fees from Supabase:', e);
-        }
+        } catch (e) {}
     }
 
-    // 3. Fallback to localStorage
-    if (!fees) {
+    // 4. Fallback to localStorage
+    if (!fees || Object.keys(fees).length === 0) {
         try {
             const local = localStorage.getItem('gym_plan_prices');
             if (local) fees = JSON.parse(local);
-        } catch (e) {
-            console.warn('[data.js] Could not parse localStorage gym_plan_prices:', e);
-        }
+        } catch (e) {}
     }
 
-    // 4. Apply fees to PLANS object if loaded
+    // 5. Apply fees to PLANS object if loaded
     if (fees && Object.keys(fees).length > 0) {
         applyFeesToPlans(fees);
         try {
@@ -1288,23 +1305,48 @@ async function savePlanPrices(newFees) {
     // 2. Save to localStorage
     try {
         localStorage.setItem('gym_plan_prices', JSON.stringify(newFees));
-    } catch (e) {
-        console.error('[data.js] Error saving to localStorage:', e);
-    }
+    } catch (e) {}
 
-    // 3. Try to save to Supabase 'settings' table
+    // 3. Save to Supabase using special config row in 'members' table
     try {
         if (window.supabaseApp) {
-            const { error } = await window.supabaseApp
-                .from('settings')
-                .upsert({ key: 'plan_prices', value: newFees }, { onConflict: 'key' });
+            const jsonStr = JSON.stringify(newFees);
+            const { data } = await window.supabaseApp
+                .from('members')
+                .select('id')
+                .eq('dni', 'CONFIG_PRICES')
+                .maybeSingle();
 
-            if (error) {
-                console.warn('[data.js] Supabase settings upsert warning:', error.message);
+            if (data) {
+                await window.supabaseApp
+                    .from('members')
+                    .update({ pathologies: jsonStr })
+                    .eq('dni', 'CONFIG_PRICES');
+            } else {
+                await window.supabaseApp
+                    .from('members')
+                    .insert([{
+                        dni: 'CONFIG_PRICES',
+                        name: 'CONFIG_PRICES',
+                        pathologies: jsonStr,
+                        plan: 'estandar',
+                        days_per_week: '2',
+                        fee: 0
+                    }]);
             }
+            console.log('[data.js] Plan prices saved to Supabase successfully!');
         }
     } catch (e) {
-        console.warn('[data.js] Could not save plan prices to Supabase settings:', e);
+        console.error('[data.js] Error saving plan prices to Supabase:', e);
     }
+
+    // 4. Also attempt to save to 'settings' table if it exists
+    try {
+        if (window.supabaseApp) {
+            await window.supabaseApp
+                .from('settings')
+                .upsert({ key: 'plan_prices', value: newFees }, { onConflict: 'key' });
+        }
+    } catch (e) {}
 }
 
