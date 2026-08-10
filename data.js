@@ -1202,6 +1202,12 @@ async function bulkUpdatePlanFees(planId, daysPerWeek, newFee) {
 }
 
 // ── Persistent Plan Prices Helper ────────────────────────────
+// Queda en true sólo cuando los precios que hay en PLANS vinieron de verdad
+// de la base (o de una caché de una lectura anterior). Mientras sea false,
+// PLANS tiene los valores por defecto de este archivo y NO hay que grabarlos
+// como cuota de un socio.
+let planPricesLoaded = false;
+
 function applyFeesToPlans(fees) {
     if (!fees) return;
     for (const [days, fee] of Object.entries(fees)) {
@@ -1218,82 +1224,70 @@ function applyFeesToPlans(fees) {
 async function loadPlanPrices() {
     let fees = null;
 
-    // 1. Try to fetch config row from 'members' table in Supabase (dni = 'CONFIG_PRICES')
+    // 1. Fuente principal: tabla 'settings' (key = 'plan_prices').
+    //    Necesita lectura pública para que la web funcione sin estar logueado.
     try {
         if (window.supabaseApp) {
             const { data, error } = await window.supabaseApp
-                .from('members')
-                .select('pathologies')
-                .eq('dni', 'CONFIG_PRICES')
+                .from('settings')
+                .select('value')
+                .eq('key', 'plan_prices')
                 .maybeSingle();
 
-            if (!error && data && data.pathologies) {
-                try {
-                    fees = JSON.parse(data.pathologies);
-                } catch (e) {}
+            if (error) {
+                console.warn('[data.js] No se pudo leer settings.plan_prices:', error.message);
+            } else if (data && data.value) {
+                fees = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
             }
         }
     } catch (e) {
-        console.warn('[data.js] Could not fetch config row from Supabase:', e);
+        console.warn('[data.js] Error leyendo settings.plan_prices:', e);
     }
 
-    // 2. Try to fetch from Supabase 'settings' table (key = 'plan_prices') if available
-    if (!fees || Object.keys(fees).length === 0) {
-        try {
-            if (window.supabaseApp) {
-                const { data, error } = await window.supabaseApp
-                    .from('settings')
-                    .select('value')
-                    .eq('key', 'plan_prices')
-                    .maybeSingle();
-
-                if (!error && data && data.value) {
-                    fees = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
-                }
-            }
-        } catch (e) {}
-    }
-
-    // 3. If no config row, fallback to checking actual member fees in Supabase
+    // 2. Compatibilidad: fila de config vieja guardada dentro de 'members'
+    //    (dni = 'CONFIG_PRICES'). Sólo visible si RLS deja leerla.
     if (!fees || Object.keys(fees).length === 0) {
         try {
             if (window.supabaseApp) {
                 const { data, error } = await window.supabaseApp
                     .from('members')
-                    .select('days_per_week, fee, id')
-                    .eq('plan', 'estandar')
-                    .neq('dni', 'CONFIG_PRICES')
-                    .not('fee', 'is', null)
-                    .gt('fee', 0)
-                    .order('id', { ascending: false });
+                    .select('pathologies')
+                    .eq('dni', 'CONFIG_PRICES')
+                    .maybeSingle();
 
-                if (!error && data && data.length > 0) {
-                    fees = {};
-                    data.forEach(m => {
-                        const d = String(m.days_per_week);
-                        if (d && m.fee && !fees[d]) {
-                            fees[d] = m.fee;
-                        }
-                    });
+                if (!error && data && data.pathologies) {
+                    try {
+                        fees = JSON.parse(data.pathologies);
+                    } catch (e) {}
                 }
+            }
+        } catch (e) {
+            console.warn('[data.js] Could not fetch config row from Supabase:', e);
+        }
+    }
+
+    // 3. Último recurso: caché local de una lectura anterior de la base.
+    if (!fees || Object.keys(fees).length === 0) {
+        try {
+            const local = localStorage.getItem('gym_plan_prices');
+            if (local) {
+                fees = JSON.parse(local);
+                console.warn('[data.js] Usando precios cacheados en este navegador; pueden estar desactualizados.');
             }
         } catch (e) {}
     }
 
-    // 4. Fallback to localStorage
-    if (!fees || Object.keys(fees).length === 0) {
-        try {
-            const local = localStorage.getItem('gym_plan_prices');
-            if (local) fees = JSON.parse(local);
-        } catch (e) {}
-    }
-
-    // 5. Apply fees to PLANS object if loaded
+    // 4. Aplicar a PLANS y marcar si los precios son confiables o no.
     if (fees && Object.keys(fees).length > 0) {
         applyFeesToPlans(fees);
+        planPricesLoaded = true;
         try {
             localStorage.setItem('gym_plan_prices', JSON.stringify(fees));
         } catch (e) {}
+    } else {
+        planPricesLoaded = false;
+        console.error('[data.js] No se pudieron cargar los precios desde la base. ' +
+            'PLANS conserva los valores por defecto del código, que NO deben grabarse como cuota.');
     }
     return PLANS;
 }
@@ -1301,13 +1295,28 @@ async function loadPlanPrices() {
 async function savePlanPrices(newFees) {
     // 1. Apply immediately in memory
     applyFeesToPlans(newFees);
+    planPricesLoaded = true;
 
-    // 2. Save to localStorage
+    // 2. Guardar en 'settings' — es la fuente que lee la web pública.
+    //    Si esto falla, los visitantes no ven los precios nuevos, así que
+    //    el error se propaga para que el panel lo muestre.
+    if (window.supabaseApp) {
+        const { error } = await window.supabaseApp
+            .from('settings')
+            .upsert({ key: 'plan_prices', value: newFees }, { onConflict: 'key' });
+
+        if (error) {
+            console.error('[data.js] Error guardando precios en settings:', error);
+            throw new Error('No se pudieron guardar los precios: ' + error.message);
+        }
+    }
+
+    // 3. Save to localStorage
     try {
         localStorage.setItem('gym_plan_prices', JSON.stringify(newFees));
     } catch (e) {}
 
-    // 3. Save to Supabase using special config row in 'members' table
+    // 4. Compatibilidad: mantener también la fila vieja dentro de 'members'
     try {
         if (window.supabaseApp) {
             const jsonStr = JSON.stringify(newFees);
@@ -1339,14 +1348,5 @@ async function savePlanPrices(newFees) {
     } catch (e) {
         console.error('[data.js] Error saving plan prices to Supabase:', e);
     }
-
-    // 4. Also attempt to save to 'settings' table if it exists
-    try {
-        if (window.supabaseApp) {
-            await window.supabaseApp
-                .from('settings')
-                .upsert({ key: 'plan_prices', value: newFees }, { onConflict: 'key' });
-        }
-    } catch (e) {}
 }
 
